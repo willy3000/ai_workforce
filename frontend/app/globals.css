@@ -1,0 +1,183 @@
+@import 'tailwindcss';
+
+/*
+  Design tokens.
+
+  Colour is assigned by JOB, not by taste:
+   - --series-N : categorical identity (the six agents). Fixed slot order — an
+     agent keeps its hue regardless of filtering or sort order, and the order
+     itself is the colourblind-safety mechanism (it maximises the minimum
+     adjacent CVD separation), so never cycle or reassign it.
+   - --status-* : reserved state colours (good/warning/serious/critical). Never
+     reused as "series 7". Always shipped with an icon + text label so state is
+     never carried by colour alone.
+   - --seq-*    : one-hue magnitude ramp for heat/intensity encodings.
+
+  Dark mode is *selected*, not an automatic inversion: each value is its own
+  step from the same ramp, chosen against the dark surface.
+*/
+:root {
+  color-scheme: light;
+
+  --surface-0: #f4f3f0;
+  --surface-1: #fcfcfb;
+  --surface-2: #ffffff;
+  --border: #e3e2dd;
+  --border-strong: #cdccc5;
+
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #7d7c76;
+
+  --series-1: #2a78d6;
+  --series-2: #008300;
+  --series-3: #e87ba4;
+  --series-4: #eda100;
+  --series-5: #1baf7a;
+  --series-6: #eb6834;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  --seq-100: #cde2fb;
+  --seq-250: #86b6ef;
+  --seq-400: #3987e5;
+  --seq-550: #1c5cab;
+  --seq-700: #0d366b;
+
+  --grid: #ebeae5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --surface-2: #232322;
+    --border: #34342f;
+    --border-strong: #4a4a43;
+
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #8f8e84;
+
+    --series-1: #3987e5;
+    --series-2: #008300;
+    --series-3: #d55181;
+    --series-4: #c98500;
+    --series-5: #199e70;
+    --series-6: #d95926;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+
+    --seq-100: #184f95;
+    --seq-250: #1c5cab;
+    --seq-400: #3987e5;
+    --seq-550: #86b6ef;
+    --seq-700: #cde2fb;
+
+    --grid: #2b2b28;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --surface-2: #232322;
+  --border: #34342f;
+  --border-strong: #4a4a43;
+
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e84;
+
+  --series-1: #3987e5;
+  --series-2: #008300;
+  --series-3: #d55181;
+  --series-4: #c98500;
+  --series-5: #199e70;
+  --series-6: #d95926;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --seq-100: #184f95;
+  --seq-250: #1c5cab;
+  --seq-400: #3987e5;
+  --seq-550: #86b6ef;
+  --seq-700: #cde2fb;
+
+  --grid: #2b2b28;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Data-flow particle animation: only runs when a workflow is actually live, so
+   motion in the UI always means motion in the system. */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.flow-active {
+  stroke-dasharray: 6 6;
+  animation: flow-dash 0.9s linear infinite;
+}
+
+@keyframes pulse-ring {
+  0% { r: 18; opacity: 0.55; }
+  70% { r: 30; opacity: 0; }
+  100% { r: 30; opacity: 0; }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-active,
+  .pulse-ring,
+  .skeleton::after {
+    animation: none;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
+
+.tabular { font-variant-numeric: tabular-nums; }

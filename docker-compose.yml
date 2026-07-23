@@ -1,0 +1,54 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: aiec-mongo
+    restart: unless-stopped
+    # Not published to the host by default: only the backend needs it.
+    # Uncomment to inspect with a GUI during development.
+    # ports:
+    #   - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aiec-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "${PORT:-4000}:4000"
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MONGODB_URI: mongodb://mongo:27017/ai_engineering_company
+
+      # --- Secrets: supplied from the .env file next to this compose file ---
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-8}
+      CLAUDE_EFFORT: ${CLAUDE_EFFORT:-high}
+      CLAUDE_MAX_TOKENS: ${CLAUDE_MAX_TOKENS:-16000}
+      AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-12}
+      REQUIRE_HUMAN_APPROVAL: ${REQUIRE_HUMAN_APPROVAL:-false}
+      WORKSPACE_ROOT: /app/workspaces
+    volumes:
+      # Cloned repositories survive container restarts. Agents run inside the
+      # container; this is the only host-visible surface they write to.
+      - workspaces:/app/workspaces
+
+volumes:
+  mongo-data:
+  workspaces:
