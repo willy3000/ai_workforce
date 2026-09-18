@@ -1,80 +1,129 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'motion/react';
 import { api } from '@/lib/api';
-import { useAction } from '@/lib/hooks';
+import { useAction, usePoll } from '@/lib/hooks';
 import type { Project, WorkflowDefinition } from '@/lib/types';
-import { agentColor, agentShort } from '@/lib/design';
-import { Button, Card, ErrorNote, Field, Select, TextArea } from '@/components/ui';
+import { agentIdentity } from '@/lib/agent-visuals';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { Button, ErrorNote, Field, Select, TextArea } from '@/components/ui';
 
 const EXAMPLES: Record<string, string> = {
   'feature-development':
     'Add a payment feature: users can pay for a subscription with Stripe, see their payment history, and download invoices.',
-  'bug-fixing':
-    'Users occasionally get charged twice when they double-click the Pay button.',
+  'bug-fixing': 'Users occasionally get charged twice when they double-click the Pay button.',
   'code-review':
     'Review the changes on the current branch for correctness and architectural consistency.',
 };
 
 /**
- * The control that actually commissions work from the AI organization.
+ * Commission work from the workforce.
  *
- * It shows the step graph for the selected workflow *before* you submit, so you
- * can see which agents will run and where the approval gates are — rather than
- * discovering that after it has started editing a repository.
+ * ## Three audit findings addressed here
+ *
+ * **Launch feedback.** Submission used to wait for the entire workflow to
+ * finish, so the operator stared at a spinner for minutes and the run id
+ * arrived only at the end. The backend now returns a queued run immediately and
+ * this navigates straight to it — the run page is where waiting belongs,
+ * because that is where progress is visible.
+ *
+ * **Scope correctness.** The project was copied into state once at mount, so
+ * changing the surrounding project selection left the launcher pointing at the
+ * old one — and the operator could commission work against a repository they
+ * were no longer looking at. The selection is now reconciled when the incoming
+ * default changes, and a project that stops being ready is cleared rather than
+ * silently kept.
+ *
+ * **Plan preview.** The step graph, the agents, the approval gates and the
+ * write scope are all shown before submission, so "which repository is about to
+ * be edited, by whom" is answerable before anything runs rather than after.
  */
 export function RunLauncher({
   projects,
-  workflows,
   defaultProjectId,
-  onStarted,
+  onLaunched,
 }: {
   projects: Project[];
-  workflows: WorkflowDefinition[];
   defaultProjectId?: string;
-  onStarted?: () => void;
+  onLaunched?: () => void;
 }) {
   const router = useRouter();
-  const readyProjects = projects.filter((p) => p.status === 'ready');
+  const workflows = usePoll((signal) => api.listWorkflows(signal), { intervalMs: 0 });
+  const definitions = useMemo(() => workflows.data?.workflows ?? [], [workflows.data]);
 
-  const [projectId, setProjectId] = useState(defaultProjectId ?? readyProjects[0]?._id ?? '');
-  const [workflow, setWorkflow] = useState(workflows[0]?.key ?? 'feature-development');
+  const readyProjects = useMemo(() => projects.filter((p) => p.status === 'ready'), [projects]);
+
+  const [projectId, setProjectId] = useState(defaultProjectId ?? '');
+  const [workflow, setWorkflow] = useState('');
   const [request, setRequest] = useState('');
+  const [touched, setTouched] = useState(false);
+
+  // Reconcile with the surrounding scope deliberately, rather than capturing it
+  // once: an operator who switches project in the header expects this to follow.
+  useEffect(() => {
+    if (defaultProjectId && readyProjects.some((p) => p._id === defaultProjectId)) {
+      setProjectId(defaultProjectId);
+      return;
+    }
+    // Clear a selection that is gone or no longer ready — a stale id would
+    // produce a confusing 409 from the backend at submit time.
+    setProjectId((current) =>
+      readyProjects.some((p) => p._id === current) ? current : (readyProjects[0]?._id ?? ''),
+    );
+  }, [defaultProjectId, readyProjects]);
+
+  useEffect(() => {
+    if (!workflow && definitions.length) setWorkflow(definitions[0]!.key);
+  }, [definitions, workflow]);
 
   const start = useAction(api.startWorkflow);
-  const selected = workflows.find((w) => w.key === workflow);
+  const selected = definitions.find((w) => w.key === workflow);
+  const project = readyProjects.find((p) => p._id === projectId);
 
-  const submit = async () => {
-    if (!projectId || !request.trim()) return;
+  const requestError =
+    touched && request.trim().length > 0 && request.trim().length < 12
+      ? 'Describe the work in a sentence — a few words is not enough context for a plan.'
+      : null;
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setTouched(true);
+    if (!projectId || request.trim().length < 12) return;
+
     const res = await start.execute({ projectId, workflow, request: request.trim() });
     if (res?.run) {
-      onStarted?.();
+      onLaunched?.();
+      // The run exists and is durable; go watch it.
       router.push(`/runs/${res.run._id}`);
     }
   };
 
   if (!readyProjects.length) {
     return (
-      <Card>
-        <p className="text-sm font-medium">No project connected yet</p>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
-          Connect a repository before commissioning work — the agents read your actual codebase,
-          so there is nothing for them to work on until one is onboarded.
+      <section className="panel p-4">
+        <h2 className="text-[13px] font-semibold">Nothing to work on yet</h2>
+        <p className="mt-1 text-[11.5px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          {projects.length
+            ? 'A connected project is still being indexed. The workforce can start once it reports ready.'
+            : 'The agents read your actual codebase, so a repository has to be connected first.'}
         </p>
         <div className="mt-3">
-          <Button variant="primary" size="sm" onClick={() => router.push('/projects')}>
+          <Button size="sm" onClick={() => router.push('/projects')}>
             Connect a repository
           </Button>
         </div>
-      </Card>
+      </section>
     );
   }
 
   return (
-    <Card>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Project">
+    <form onSubmit={submit} className="panel rail-top p-4" style={{ ['--accent' as string]: 'var(--series-1)' }}>
+      <h2 className="mb-3 text-[13px] font-semibold">Commission work</h2>
+
+      <div className="space-y-3">
+        <Field label="Repository">
           <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
             {readyProjects.map((p) => (
               <option key={p._id} value={p._id}>
@@ -85,72 +134,47 @@ export function RunLauncher({
         </Field>
 
         <Field label="Workflow">
-          <Select
-            value={workflow}
-            onChange={(e) => {
-              setWorkflow(e.target.value);
-              if (!request.trim()) setRequest('');
-            }}
-          >
-            {workflows.map((w) => (
+          <Select value={workflow} onChange={(e) => setWorkflow(e.target.value)}>
+            {definitions.map((w) => (
               <option key={w.key} value={w.key}>
                 {w.name}
               </option>
             ))}
           </Select>
         </Field>
-      </div>
 
-      <div className="mt-3">
-        <Field
-          label="What do you want built?"
-          hint={selected?.trigger}
-        >
+        <Field label="What do you want done?" hint={selected?.trigger}>
           <TextArea
             rows={3}
             value={request}
+            required
+            minLength={12}
+            maxLength={20_000}
+            aria-invalid={requestError ? true : undefined}
+            aria-describedby={requestError ? 'request-error' : undefined}
             placeholder={EXAMPLES[workflow] ?? 'Describe the work in plain language…'}
             onChange={(e) => setRequest(e.target.value)}
+            onBlur={() => setTouched(true)}
           />
         </Field>
+        {requestError && (
+          <p id="request-error" className="text-[11px]" style={{ color: 'var(--status-critical)' }}>
+            {requestError}
+          </p>
+        )}
         {!request.trim() && EXAMPLES[workflow] && (
           <button
+            type="button"
             onClick={() => setRequest(EXAMPLES[workflow]!)}
-            className="mt-1 text-[11px] text-[var(--series-1)] underline underline-offset-2"
+            className="text-[11px] underline underline-offset-2"
+            style={{ color: 'var(--series-1)' }}
           >
             Use the example request
           </button>
         )}
       </div>
 
-      {/* Preview the plan before committing to it. */}
-      {selected && (
-        <div className="mt-3 rounded-lg border bg-[var(--surface-2)] p-2.5">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-            Agents that will run
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {selected.steps.map((step, i) => (
-              <span key={step.id} className="flex items-center gap-1.5">
-                {i > 0 && <span aria-hidden className="text-[var(--text-muted)]">→</span>}
-                <span
-                  className="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
-                  style={{ borderColor: agentColor(step.agent), color: agentColor(step.agent) }}
-                  title={`${step.name}${step.conditional ? ' (conditional)' : ''}`}
-                >
-                  <span className="font-bold">{agentShort(step.agent)}</span>
-                  {step.conditional && <span aria-hidden title="Runs only if needed">◑</span>}
-                  {step.requiresApproval && <span aria-hidden title="Requires approval">⏸</span>}
-                </span>
-              </span>
-            ))}
-          </div>
-          <p className="mt-2 text-[10px] text-[var(--text-muted)]">
-            ◑ conditional — skipped automatically if the technical plan says it is not needed ·
-            ⏸ pauses for your approval
-          </p>
-        </div>
-      )}
+      {selected && <PlanPreview definition={selected} />}
 
       {start.error && (
         <div className="mt-3">
@@ -158,20 +182,97 @@ export function RunLauncher({
         </div>
       )}
 
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <p className="text-[11px] text-[var(--text-muted)]">
-          {start.pending
-            ? 'Agents are working — this can take several minutes.'
-            : 'Runs execute several agents in sequence against your real repository.'}
-        </p>
+      <div className="mt-3 space-y-2">
+        {project && (
+          <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Agents will read and write <strong style={{ color: 'var(--text-secondary)' }}>{project.name}</strong>
+            {project.profile?.testCommand && (
+              <>
+                {' '}
+                and verify with <code className="hud">{project.profile.testCommand}</code>
+              </>
+            )}
+            .
+          </p>
+        )}
         <Button
+          type="submit"
           variant="primary"
-          onClick={submit}
-          disabled={start.pending || !request.trim() || !projectId}
+          disabled={start.pending || !projectId || request.trim().length < 12}
+          className="w-full"
         >
-          {start.pending ? 'Running…' : 'Commission work'}
+          {start.pending ? 'Dispatching…' : 'Start run'}
         </Button>
       </div>
-    </Card>
+    </form>
+  );
+}
+
+/**
+ * The plan, before you commit to it.
+ *
+ * Shows the actual agents in execution order with their real silhouettes, so the
+ * preview and the run you are about to watch use the same visual language.
+ * Conditional and gated steps are marked, because "will this pause and wait for
+ * me?" changes whether you start it before stepping away.
+ */
+function PlanPreview({ definition }: { definition: WorkflowDefinition }) {
+  const gated = definition.steps.filter((s) => s.requiresApproval).length;
+
+  return (
+    <div className="mt-3 rounded-lg border p-3" style={{ background: 'var(--surface-0)' }}>
+      <p className="eyebrow mb-2.5">Plan · {definition.steps.length} steps</p>
+
+      <div className="flex flex-wrap items-start gap-x-0.5 gap-y-2">
+        {definition.steps.map((step, index) => {
+          const identity = agentIdentity(step.agent);
+          return (
+            <div key={step.id} className="flex items-start">
+              {index > 0 && (
+                <span aria-hidden className="mt-4 px-1 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                  →
+                </span>
+              )}
+              <motion.div
+                className="flex w-[52px] flex-col items-center gap-0.5 text-center"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.04 }}
+                title={`${step.name} — ${identity.role}`}
+              >
+                <AgentAvatar agentKey={step.agent} state="idle" size={34} showMonogram={false} />
+                <span className="text-[9px] leading-tight" style={{ color: 'var(--text-muted)' }}>
+                  {identity.short}
+                </span>
+                <span className="flex gap-0.5 text-[9px]">
+                  {step.conditional && (
+                    <span aria-hidden title="Runs only if the plan says it is needed">
+                      ◑
+                    </span>
+                  )}
+                  {step.requiresApproval && (
+                    <span aria-hidden title="Pauses for your approval" style={{ color: 'var(--status-warning)' }}>
+                      ⏸
+                    </span>
+                  )}
+                </span>
+              </motion.div>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mt-2.5 text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+        {gated > 0 ? (
+          <>
+            <span style={{ color: 'var(--status-warning)' }}>⏸ {gated} step{gated === 1 ? '' : 's'} will pause</span>{' '}
+            and wait for your approval before changing anything.{' '}
+          </>
+        ) : (
+          'No approval gates in this workflow — it runs to completion unless something blocks. '
+        )}
+        ◑ marks steps skipped automatically when the plan says they are not needed.
+      </p>
+    </div>
   );
 }

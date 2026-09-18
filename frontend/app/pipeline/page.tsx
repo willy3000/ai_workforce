@@ -172,7 +172,7 @@ export default function PipelinePage() {
         </Card>
       </div>
 
-      {ready.data && (
+      {ready.data?.config && ready.data.registry && (
         <Card>
           <SectionTitle title="Platform configuration" />
           <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-2 lg:grid-cols-4">

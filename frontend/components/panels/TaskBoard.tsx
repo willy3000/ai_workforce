@@ -83,9 +83,9 @@ export function TaskBoard({
                         {timeAgo(task.createdAt)}
                       </span>
                     </div>
-                    {task.artifacts.length > 0 && (
+                    {task?.artifacts?.length > 0 && (
                       <p className="mt-1 text-[10px] text-[var(--text-muted)]">
-                        {task.artifacts.length} artifact{task.artifacts.length === 1 ? '' : 's'}
+                        {task?.artifacts.length} artifact{task?.artifacts.length === 1 ? '' : 's'}
                       </p>
                     )}
                   </button>
@@ -214,10 +214,10 @@ function TaskDrawer({
           </Section>
         )}
 
-        {task.artifacts.length > 0 && (
-          <Section title={`Artifacts (${task.artifacts.length})`}>
+        {task?.artifacts.length > 0 && (
+          <Section title={`Artifacts (${task?.artifacts.length})`}>
             <div className="space-y-1.5">
-              {task.artifacts.map((a, i) => (
+              {task?.artifacts.map((a, i) => (
                 <Disclosure
                   key={i}
                   summary={

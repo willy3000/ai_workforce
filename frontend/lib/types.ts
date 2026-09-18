@@ -119,17 +119,65 @@ export interface Agent {
 export type StepStatus =
   | 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'skipped' | 'failed';
 
+/**
+ * Why a step reached its status.
+ *
+ * Separate from `status` because "the engine moved past this step" and "the work
+ * succeeded" are different questions. A refusal, a truncated response and an
+ * iteration-limit stop all ended the step; none of them produced usable work.
+ */
+export type StepOutcome =
+  | 'completed' | 'needs_review' | 'blocked' | 'refused'
+  | 'truncated' | 'iteration_limit' | 'error' | 'cancelled';
+
 export interface WorkflowStepState {
   id: string;
   name: string;
   agentKey: string;
   status: StepStatus;
+  outcome?: StepOutcome;
   taskId?: string;
   output?: string;
   error?: string;
   startedAt?: string;
   completedAt?: string;
   usage?: { inputTokens: number; outputTokens: number; toolCalls: number };
+  attempt?: number;
+}
+
+export type RunStatus =
+  | 'pending' | 'queued' | 'running' | 'awaiting_approval'
+  | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+
+export type RunOutcome = 'delivered' | 'needs_review' | 'blocked' | 'failed' | 'cancelled';
+
+/**
+ * What a run actually produced, recorded by the platform from observed effects
+ * rather than described by a model. This is the evidence a reviewer approves.
+ */
+export interface ChangeSet {
+  baseCommit?: string;
+  headCommit?: string;
+  branch?: string;
+  changedPaths?: string[];
+  commits?: { hash: string; message: string; at: string }[];
+  pullRequest?: { number: number; url: string; draft: boolean; openedAt: string };
+  checks?: { command: string; exitCode: number | null; passed: boolean; at: string }[];
+  /** One per git repository in the checkout, each with its own publication. */
+  repos?: RunRepoState[];
+}
+
+export interface RunRepoState {
+  /** Workspace-relative directory; '' for a repository at the checkout root. */
+  root: string;
+  baseBranch: string;
+  baseCommit: string;
+  /** The operator's pre-existing uncommitted work, committed first and labelled. */
+  baselineCommit?: string;
+  headCommit?: string;
+  changedPaths?: string[];
+  published?: { target: string; at: string };
+  publishError?: string;
 }
 
 export interface WorkflowRun {
@@ -137,13 +185,21 @@ export interface WorkflowRun {
   projectId: string;
   workflow: string;
   request: string;
-  status: 'pending' | 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled';
+  status: RunStatus;
+  outcome?: RunOutcome;
   steps: WorkflowStepState[];
   context: Record<string, string>;
+  changeSet?: ChangeSet;
   summary?: string;
   error?: string;
   startedBy: string;
+  /** Present on the API but previously missing here, which broke elapsed time. */
+  startedAt?: string;
+  completedAt?: string;
+  cancelRequestedAt?: string;
+  usage?: { inputTokens: number; outputTokens: number; toolCalls: number };
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface WorkflowDefinition {
@@ -196,35 +252,57 @@ export interface MemorySnapshot {
 
 export interface ReadyState {
   status: 'ready' | 'not_ready';
-  checks: {
+  /** Detail is only returned to an authenticated caller, so every field is optional. */
+  checks?: {
     database: boolean;
     claudeApiKey: boolean;
     geminiApiKey: boolean;
+    ollamaAvailable?: boolean;
     githubToken: boolean;
   };
-  providers: {
+  providers?: {
     default: string;
     effective: string;
     configured: string[];
     models: Record<string, string>;
   };
-  registry: { agents: string[]; workflows: string[]; tools: string[] };
-  config: {
+  registry?: { agents: string[]; workflows: string[]; tools: string[] };
+  config?: {
     model: string;
     effort: string;
     requireHumanApproval: boolean;
     workspaceRoot: string;
   };
+  /** The platform's actual posture, so the UI can stop implying absent controls. */
+  security?: {
+    authenticated: boolean;
+    commandsSandboxed: boolean;
+    localImportEnabled: boolean;
+    allowedGitHosts: string[];
+  };
+  limits?: {
+    maxConcurrentRuns: number;
+    runDeadlineMs: number;
+    activeRuns: number;
+  };
 }
+
+export type AgentOutcome =
+  | 'completed' | 'needs_review' | 'blocked' | 'refused'
+  | 'truncated' | 'iteration_limit' | 'cancelled' | 'no_completion_report';
 
 export interface AgentRunResult {
   agentKey: string;
   provider?: string;
   output: string;
   stopReason: string;
+  /** The authoritative verdict — never infer success from the absence of `error`. */
+  outcome: AgentOutcome;
+  succeeded: boolean;
   iterations: number;
   toolCalls: { name: string; input: unknown; ok: boolean; summary: string }[];
   usage: { inputTokens: number; outputTokens: number; toolCalls: number };
   completion?: { status: string; summary: string };
+  changedPaths?: string[];
   error?: string;
 }

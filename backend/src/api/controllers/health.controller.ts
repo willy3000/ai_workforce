@@ -4,6 +4,7 @@ import { agentRegistry } from '../../agents/registry';
 import { workflowRegistry } from '../../workflows';
 import { toolRegistry } from '../../tools/registry';
 import { env } from '../../config/env';
+import { executionRegistry } from '../../runtime/execution-registry';
 import {
   configuredProviders,
   effectiveProviderName,
@@ -23,9 +24,15 @@ export const healthController = {
 
   /**
    * Readiness: the platform can actually do work.
-   * Reports configuration state without ever echoing a credential.
+   *
+   * Two audiences, two shapes (audit finding S10). An orchestrator's probe needs
+   * only a status code and a boolean, and this endpoint is unauthenticated so it
+   * can be probed before a key is configured. The detailed view — registry
+   * contents, model names, workspace path, provider configuration — is an
+   * operator diagnostic, and previously any anonymous caller could read it. It
+   * now requires the same authentication as the rest of the API.
    */
-  async ready(_req: Request, res: Response): Promise<void> {
+  async ready(req: Request, res: Response): Promise<void> {
     const database = isDatabaseHealthy();
     const claudeConfigured = isProviderConfigured('claude');
     const geminiConfigured = isProviderConfigured('gemini');
@@ -37,6 +44,13 @@ export const healthController = {
     // readiness condition. Ollama has no key so it's always "configured" here;
     // it can still fail at call time if the server isn't reachable.
     const ready = database && (claudeConfigured || geminiConfigured || ollamaConfigured);
+
+    // Unauthenticated callers get liveness-grade detail only.
+    if (!req.actor) {
+      res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'not_ready' });
+      return;
+    }
+
     res.status(ready ? 200 : 503).json({
       status: ready ? 'ready' : 'not_ready',
       checks: {
@@ -52,6 +66,7 @@ export const healthController = {
         configured: configuredProviders(),
         models: { claude: env.CLAUDE_MODEL, gemini: env.GEMINI_MODEL, ollama: env.OLLAMA_MODEL },
         ollamaBaseUrl: env.OLLAMA_BASE_URL,
+        geminiQuota: { requestsPerMinute: env.GEMINI_RPM_LIMIT, tokensPerMinute: env.GEMINI_TPM_LIMIT },
       },
       registry: {
         agents: agentRegistry.keys(),
@@ -61,8 +76,22 @@ export const healthController = {
       config: {
         model: providerModel(effectiveProviderName()),
         effort: env.CLAUDE_EFFORT,
+        agentMaxIterations: env.AGENT_MAX_ITERATIONS,
         requireHumanApproval: env.REQUIRE_HUMAN_APPROVAL,
         workspaceRoot: env.WORKSPACE_ROOT_ABS,
+      },
+      // Surfaced so the UI can show an honest posture banner rather than
+      // implying controls that are not in force.
+      security: {
+        authenticated: req.actor.kind === 'operator',
+        commandsSandboxed: Boolean(env.TERMINAL_SANDBOX_COMMAND),
+        localImportEnabled: env.ALLOW_LOCAL_PATH_IMPORT,
+        allowedGitHosts: env.GIT_ALLOWED_HOSTS,
+      },
+      limits: {
+        maxConcurrentRuns: env.MAX_CONCURRENT_RUNS,
+        runDeadlineMs: env.RUN_DEADLINE_MS,
+        activeRuns: executionRegistry.activeCount,
       },
     });
   },

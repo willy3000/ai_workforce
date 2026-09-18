@@ -13,6 +13,27 @@ export type TaskStatus =
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
+/**
+ * Numeric urgency, because the string sorts alphabetically.
+ *
+ * Audit finding E7: `findRunnable` sorted by `priority: -1` on the *string*,
+ * giving the descending order `medium > low > high > critical` — the exact
+ * inverse of intent for the two urgent levels. Storing a rank alongside the
+ * label keeps the readable enum in the API while making the sort correct, and
+ * makes the scheduling index (`projectId, status, priorityRank, createdAt`)
+ * meaningful.
+ */
+export const PRIORITY_RANK: Record<TaskPriority, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+export function priorityRankOf(priority: TaskPriority | undefined): number {
+  return PRIORITY_RANK[priority ?? 'medium'] ?? PRIORITY_RANK.medium;
+}
+
 export type TaskType =
   | 'analysis'
   | 'planning'
@@ -49,6 +70,8 @@ export interface ITask {
   type: TaskType;
   status: TaskStatus;
   priority: TaskPriority;
+  /** Derived from `priority` on every write; the field the scheduler sorts on. */
+  priorityRank: number;
   /** Agent key (e.g. `backend-engineer`) this task is assigned to. */
   assignedTo?: string;
   createdBy: string;
@@ -122,6 +145,7 @@ const TaskSchema = new Schema<ITask>(
       enum: ['low', 'medium', 'high', 'critical'],
       default: 'medium',
     },
+    priorityRank: { type: Number, default: PRIORITY_RANK.medium },
     assignedTo: { type: String, index: true },
     createdBy: { type: String, default: 'human' },
     dependsOn: { type: [Schema.Types.ObjectId], ref: 'Task', default: [] },
@@ -138,7 +162,32 @@ const TaskSchema = new Schema<ITask>(
   { timestamps: true, collection: 'tasks' },
 );
 
-TaskSchema.index({ projectId: 1, status: 1, priority: 1 });
-TaskSchema.index({ projectId: 1, createdAt: -1 });
+/**
+ * Keep `priorityRank` consistent with `priority` no matter which write path set
+ * it. Doing this in middleware rather than at each call site means a future
+ * controller cannot forget and silently produce a task the scheduler misorders.
+ */
+TaskSchema.pre('save', function syncPriorityRank(next) {
+  this.priorityRank = priorityRankOf(this.priority);
+  next();
+});
+
+TaskSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany'], function syncPriorityRank(next) {
+  const update = this.getUpdate() as Record<string, unknown> | null;
+  if (!update) return next();
+  const set = (update.$set ?? update) as Record<string, unknown>;
+  if (typeof set.priority === 'string') {
+    set.priorityRank = priorityRankOf(set.priority as TaskPriority);
+    if (update.$set) update.$set = set;
+    this.setUpdate(update);
+  }
+  return next();
+});
+
+// Scheduling: equality on project+status, then urgency, then arrival order.
+TaskSchema.index({ projectId: 1, status: 1, priorityRank: -1, createdAt: 1 });
+// Listing: newest first, with `_id` as a stable tiebreaker for cursor paging.
+TaskSchema.index({ projectId: 1, createdAt: -1, _id: -1 });
+TaskSchema.index({ workflowRunId: 1, createdAt: -1, _id: -1 });
 
 export const TaskModel = model<ITask>('Task', TaskSchema);

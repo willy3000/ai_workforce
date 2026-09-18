@@ -89,23 +89,30 @@ export function Badge({
   );
 }
 
-export function Button({
-  children,
-  onClick,
-  variant = 'default',
-  size = 'md',
-  disabled,
-  type = 'button',
-  title,
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
+/**
+ * Button.
+ *
+ * Extends the native button props rather than re-declaring a narrow subset.
+ * The audit's note was "Extend Button to accept normal accessibility/HTML
+ * props": the previous signature allowed only `onClick`, `disabled`, `type` and
+ * `title`, so `aria-label`, `aria-expanded`, `form`, `className` and every event
+ * other than click were unreachable — and a call site that needed one had to
+ * drop to a raw `<button>` and lose the styling. Inheriting the full prop set
+ * costs nothing and removes that fork.
+ */
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'default' | 'primary' | 'danger' | 'ghost';
   size?: 'sm' | 'md';
-  disabled?: boolean;
-  type?: 'button' | 'submit';
-  title?: string;
-}) {
+}
+
+export function Button({
+  children,
+  variant = 'default',
+  size = 'md',
+  type = 'button',
+  className = '',
+  ...rest
+}: ButtonProps) {
   const base =
     'inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50';
   const sizes = size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm';
@@ -116,13 +123,7 @@ export function Button({
     ghost: 'border-transparent hover:bg-[var(--surface-2)]',
   };
   return (
-    <button
-      type={type}
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`${base} ${sizes} ${variants[variant]}`}
-    >
+    <button type={type} className={`${base} ${sizes} ${variants[variant]} ${className}`} {...rest}>
       {children}
     </button>
   );

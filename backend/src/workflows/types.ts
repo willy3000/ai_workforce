@@ -55,16 +55,24 @@ export interface StartWorkflowInput {
   autoRun?: boolean;
 }
 
+/** Keep legacy or partially-written run documents safe at every handoff boundary. */
+export function normalizeWorkflowContext(
+  context: Record<string, string> | null | undefined,
+): Record<string, string> {
+  return context && typeof context === 'object' ? context : {};
+}
+
 /** Render a prompt template against the original request and prior step outputs. */
 export function renderTemplate(
   template: string,
   request: string,
-  context: Record<string, string>,
+  context: Record<string, string> | null | undefined,
 ): string {
+  const normalizedContext = normalizeWorkflowContext(context);
   return template
     .replace(/\{\{request\}\}/g, request)
     .replace(/\{\{steps\.([\w-]+)\}\}/g, (_match, stepId: string) => {
-      const value = context[stepId];
+      const value = normalizedContext[stepId];
       return value ? value : `(no output recorded for step '${stepId}')`;
     });
 }

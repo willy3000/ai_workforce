@@ -1,6 +1,8 @@
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { ProviderError } from '../../utils/errors';
+import { combineSignals } from './types';
+import { GeminiQuotaLimiter } from './gemini-quota';
 import type {
   Effort,
   LlmCompletionRequest,
@@ -87,6 +89,7 @@ export class GeminiProvider implements LlmProvider {
   constructor(
     private readonly apiKey: string = env.GEMINI_API_KEY,
     private readonly defaultModel: string = env.GEMINI_MODEL,
+    private readonly quota = new GeminiQuotaLimiter(env.GEMINI_RPM_LIMIT, env.GEMINI_TPM_LIMIT),
   ) {}
 
   async complete(request: LlmCompletionRequest): Promise<LlmResponse> {
@@ -99,27 +102,46 @@ export class GeminiProvider implements LlmProvider {
     const model = request.model ?? this.defaultModel;
     const maxTokens = request.maxTokens ?? env.CLAUDE_MAX_TOKENS;
 
+    const contents = this.toContents(request.messages);
+    const tools = request.tools?.length
+      ? [{ functionDeclarations: request.tools.map((t) => this.toFunctionDeclaration(t)) }]
+      : undefined;
+    const estimatedInputTokens = this.estimateTokens({ system: request.system, contents, tools });
+    const maxOutputTokens = Math.min(
+      maxTokens,
+      env.GEMINI_TPM_LIMIT - estimatedInputTokens,
+    );
+    if (maxOutputTokens < 256) {
+      throw new ProviderError(
+        `Gemini prompt is too large for the ${env.GEMINI_TPM_LIMIT}-token per-minute quota.`,
+        { code: 'gemini_tpm_exceeded' },
+      );
+    }
+
     const body: Record<string, unknown> = {
       systemInstruction: { parts: [{ text: request.system }] },
-      contents: this.toContents(request.messages),
+      contents,
       generationConfig: {
-        maxOutputTokens: maxTokens,
-        ...this.thinkingConfig(request),
+        maxOutputTokens,
+        ...this.thinkingConfig(model, request),
       },
     };
 
     if (request.tools?.length) {
-      body.tools = [{ functionDeclarations: request.tools.map((t) => this.toFunctionDeclaration(t)) }];
+      body.tools = tools;
       // Let the model decide when to call a tool, matching Claude's default.
       body.toolConfig = { functionCallingConfig: { mode: 'AUTO' } };
     }
 
     const startedAt = Date.now();
+    const reservation = await this.quota.reserve(estimatedInputTokens, maxOutputTokens, request.signal);
     const res = await fetch(`${API_BASE}/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': this.apiKey },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10 * 60 * 1000),
+      // Both the per-request timeout and the run's cancellation must be able to
+      // abort this call, so they are combined rather than chosen between.
+      signal: combineSignals(AbortSignal.timeout(10 * 60 * 1000), request.signal),
     });
 
     const payload = (await res.json().catch(() => ({}))) as GeminiResponse;
@@ -133,6 +155,7 @@ export class GeminiProvider implements LlmProvider {
     }
 
     const normalized = this.normalize(payload, model);
+    reservation.release(normalized.usage.inputTokens + normalized.usage.outputTokens);
     logger.debug(
       {
         provider: 'gemini',
@@ -147,6 +170,13 @@ export class GeminiProvider implements LlmProvider {
     return normalized;
   }
 
+  private estimateTokens(input: unknown): number {
+    // A UTF-8 byte is a conservative upper bound for a token, including for
+    // code, JSON punctuation, and non-ASCII input. This favors waiting/rejecting
+    // over risking an account-level TPM violation.
+    return Buffer.byteLength(JSON.stringify(input), 'utf8');
+  }
+
   /**
    * Effort → thinking budget.
    *
@@ -154,10 +184,11 @@ export class GeminiProvider implements LlmProvider {
    * `-1` means "decide dynamically", which is the closest analogue to Claude's
    * adaptive thinking and what we use for the higher effort levels.
    */
-  private thinkingConfig(request: LlmCompletionRequest): Record<string, unknown> {
-    if (request.thinking === false) {
-      return { thinkingConfig: { thinkingBudget: 0 } };
-    }
+  private thinkingConfig(model: string, request: LlmCompletionRequest): Record<string, unknown> {
+    // Gemma models exposed through the Gemini API reject thinkingConfig rather
+    // than ignoring it. Their reasoning behavior is model-controlled.
+    if (model.toLowerCase().startsWith('gemma')) return {};
+    if (request.thinking === false) return { thinkingConfig: { thinkingBudget: 0 } };
     const byEffort: Record<Effort, number> = {
       low: 2048,
       medium: 8192,
@@ -165,7 +196,7 @@ export class GeminiProvider implements LlmProvider {
       xhigh: -1,
       max: -1,
     };
-    const effort = (request.effort ?? env.CLAUDE_EFFORT) as Effort;
+    const effort = (request.effort ?? env.CLAUDE_EFFORT);
     return {
       thinkingConfig: {
         thinkingBudget: byEffort[effort] ?? -1,

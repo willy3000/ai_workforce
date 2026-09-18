@@ -1,260 +1,399 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { api } from '@/lib/api';
-import { usePoll, useLocalState } from '@/lib/hooks';
-import { isActive } from '@/lib/design';
-import { formatNumber, timeAgo } from '@/lib/format';
-import { Card, EmptyState, ErrorNote, SectionTitle, Select, Spinner, StatTile, StatusPill } from '@/components/ui';
-import { AgentNetwork } from '@/components/viz/AgentNetwork';
-import { PipelineStrip } from '@/components/viz/WorkflowPipeline';
-import { StatusBreakdown, UsageChart } from '@/components/viz/UsageChart';
-import { MessageFeed } from '@/components/panels/MessageFeed';
-import { RunLauncher } from '@/components/panels/RunLauncher';
+import { useLocalState, usePoll } from '@/lib/hooks';
+import { WorkspaceCanvas, type WorkspaceFlow, type WorkspaceNode } from '@/components/workspace/WorkspaceCanvas';
+import { CommandConsole } from '@/components/workspace/CommandConsole';
+import { AgentInspector } from '@/components/workspace/AgentInspector';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import {
+  ORCHESTRATOR_KEY,
+  agentIdentity,
+  allAgentIdentities,
+  flowKindForIntent,
+  stepState,
+  taskState,
+  type AgentState,
+} from '@/lib/agent-visuals';
+import type { AgentMessage, Task, WorkflowRun } from '@/lib/types';
 
 /**
- * Command Center — the "is anything happening, and do I need to act?" screen.
+ * The workspace.
  *
- * Ordered by urgency, not by data model: anything blocked or awaiting approval
- * is the first thing on the page, because it is the only thing that requires a
- * human. Everything below it is situational awareness.
+ * The whole viewport is the room the workforce occupies. There is no sidebar,
+ * no header, and no grid of cards: the canvas is the application, and every
+ * other element floats over it as instrumentation that appears when it has
+ * something to say.
+ *
+ * ## What is on screen, and why
+ *  - **The world** — agents at stations, external systems on the perimeter, work
+ *    visibly moving between them.
+ *  - **The console** — where a request enters the system.
+ *  - **The inspector** — one agent's detail, only while selected.
+ *  - **The alert strip** — appears only when something has stopped and is
+ *    waiting for a human. It is absent when nothing is wrong, which is the
+ *    difference between an interface that reports and one that nags.
+ *
+ * ## Nothing is invented
+ * Every state and every packet comes from a real run, task or message. The skill
+ * is explicit: do not create fake activity to make the UI look alive. An idle
+ * platform renders as a calm, dim room — which is honest, and is itself the
+ * answer to "is anything happening?".
  */
-export default function CommandCenter() {
-  const [projectId, setProjectId] = useLocalState<string>('aiec-project', '');
+const ACTIVE_RUN = new Set(['queued', 'running', 'cancelling', 'awaiting_approval']);
 
-  const projects = usePoll(() => api.listProjects(), 10_000);
-  const agents = usePoll(() => api.listAgents(), 8_000);
-  const workflows = usePoll(() => api.listWorkflows(), 0);
-  const runs = usePoll(() => api.listRuns(projectId || undefined), 4000, [projectId]);
-  const tasks = usePoll(() => api.listTasks(projectId || undefined), 4000, [projectId]);
-  const messages = usePoll(() => api.messages(projectId || undefined), 5000, [projectId]);
+export default function Workspace() {
+  const [selectedProjectId, setSelectedProjectId] = useLocalState<string | null>('aiec-project', null);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [dispatching, setDispatching] = useState<string | null>(null);
 
-  const activeRun = runs.data?.runs.find((r) => isActive(r.status));
+  const projects = usePoll((signal) => api.listProjects(signal), { intervalMs: 15_000 });
+  const scope = selectedProjectId ?? undefined;
 
-  /** Agents currently mid-step — drives the pulse in the org chart. */
-  const activeAgents = useMemo(() => {
-    if (!activeRun) return [];
-    return activeRun.steps.filter((s) => s.status === 'running').map((s) => s.agentKey);
-  }, [activeRun]);
+  const runs = usePoll((signal) => api.listRuns(scope, signal), { intervalMs: 4000 }, [scope]);
+  const tasks = usePoll((signal) => api.listTasks(scope, signal), { intervalMs: 7000 }, [scope]);
+  const messages = usePoll((signal) => api.messages(scope, signal), { intervalMs: 7000 }, [scope]);
+  const agents = usePoll((signal) => api.listAgents(signal), { intervalMs: 60_000 });
 
-  const taskCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const t of tasks.data?.tasks ?? []) counts[t.status] = (counts[t.status] ?? 0) + 1;
-    return counts;
-  }, [tasks.data]);
+  const projectList = projects.data?.projects ?? [];
+  const allRuns = useMemo(() => runs.data?.runs ?? [], [runs.data]);
+  const allTasks = useMemo(() => tasks.data?.tasks ?? [], [tasks.data]);
 
-  const needsAttention = useMemo(() => {
-    const t = (tasks.data?.tasks ?? []).filter(
-      (x) => x.status === 'awaiting_approval' || x.status === 'blocked' || x.status === 'failed',
-    );
-    const r = (runs.data?.runs ?? []).filter((x) => x.status === 'awaiting_approval' || x.status === 'failed');
-    const escalations = (messages.data?.messages ?? []).filter(
-      (m) => m.to === 'human' && (m.intent === 'escalation' || m.intent === 'clarification'),
-    );
-    return { tasks: t, runs: r, escalations };
-  }, [tasks.data, runs.data, messages.data]);
+  const liveRuns = useMemo(() => allRuns.filter((r) => ACTIVE_RUN.has(r.status)), [allRuns]);
+  const nodes = useWorkspaceNodes(liveRuns, allTasks);
+  const flows = useFlows(messages.data?.messages ?? [], liveRuns.length > 0);
+  const alerts = useMemo(() => buildAlerts(allRuns, allTasks), [allRuns, allTasks]);
 
-  const attentionCount =
-    needsAttention.tasks.length + needsAttention.runs.length + needsAttention.escalations.length;
+  const dormant = projectList.length === 0;
 
-  const totalTokens = (agents.data?.agents ?? []).reduce(
-    (sum, a) => sum + a.stats.inputTokens + a.stats.outputTokens,
-    0,
-  );
-  const totalRuns = (agents.data?.agents ?? []).reduce((sum, a) => sum + a.stats.runs, 0);
+  const onDispatch = useCallback((request: string) => {
+    setDispatching(request);
+    window.setTimeout(() => setDispatching(null), 2600);
+  }, []);
 
-  if (projects.error) {
-    return <ErrorNote message={projects.error} onRetry={projects.refresh} />;
-  }
+  const selectedNode = nodes.find((n) => n.agentKey === selectedAgent);
 
   return (
-    <div className="space-y-5">
-      {/* Header + project scope */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">Command Center</h1>
-          <p className="text-xs text-[var(--text-muted)]">
-            Your autonomous engineering organization, live.
-          </p>
-        </div>
-        <div className="w-56">
-          <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">All projects</option>
-            {(projects.data?.projects ?? []).map((p) => (
-              <option key={p._id} value={p._id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
+    <>
+      <WorkspaceCanvas
+        nodes={nodes}
+        flows={flows}
+        selectedAgent={selectedAgent}
+        onSelectAgent={setSelectedAgent}
+        incomingRequest={dispatching}
+        dormant={dormant}
+      />
 
-      {/* Anything needing a human comes first. */}
-      {attentionCount > 0 && (
-        <Card className="border-l-2" >
-          <SectionTitle
-            title={`${attentionCount} item${attentionCount === 1 ? '' : 's'} need you`}
-            hint="The organization pauses rather than guessing when it hits your authority boundary."
+      {dormant ? (
+        <StandbyPrompt />
+      ) : (
+        <>
+          <AnimatePresence>
+            {alerts.length > 0 && !selectedAgent && <AlertStrip alerts={alerts} />}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {selectedAgent && (
+              <AgentInspector
+                key={selectedAgent}
+                agentKey={selectedAgent}
+                state={selectedNode?.state ?? 'idle'}
+                activity={selectedNode?.activity}
+                agent={agents.data?.agents.find((a) => a.key === selectedAgent)}
+                tasks={allTasks.filter((t) => t.assignedTo === selectedAgent)}
+                onClose={() => setSelectedAgent(null)}
+              />
+            )}
+          </AnimatePresence>
+
+          <CommandConsole
+            projects={projectList}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+            onDispatch={onDispatch}
           />
-          <ul className="space-y-1.5">
-            {needsAttention.runs.map((r) => (
-              <li key={r._id} className="flex items-center justify-between gap-3 text-xs">
-                <Link href={`/runs/${r._id}`} className="min-w-0 flex-1 truncate hover:underline">
-                  <span className="text-[var(--text-muted)]">{r.workflow}</span> — {r.request}
-                </Link>
-                <StatusPill status={r.status} size="xs" />
-              </li>
-            ))}
-            {needsAttention.tasks.slice(0, 5).map((t) => (
-              <li key={t._id} className="flex items-center justify-between gap-3 text-xs">
-                <span className="min-w-0 flex-1 truncate">{t.title}</span>
-                <StatusPill status={t.status} size="xs" />
-              </li>
-            ))}
-            {needsAttention.escalations.slice(0, 3).map((m) => (
-              <li key={m._id} className="flex items-start gap-2 text-xs">
-                <span aria-hidden style={{ color: 'var(--status-critical)' }}>⚑</span>
-                <span className="min-w-0 flex-1">
-                  <span className="font-medium">{m.from}</span> —{' '}
-                  <span className="text-[var(--text-secondary)]">{m.message.slice(0, 160)}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        </>
       )}
-
-      {/* Vitals */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile
-          label="Projects connected"
-          value={projects.data?.count ?? '—'}
-          sub={`${(projects.data?.projects ?? []).filter((p) => p.status === 'ready').length} ready`}
-          glyph="▤"
-        />
-        <StatTile
-          label="Agent runs"
-          value={totalRuns}
-          sub={`${formatNumber(totalTokens)} tokens processed`}
-          glyph="⬡"
-        />
-        <StatTile
-          label="Tasks"
-          value={tasks.data?.count ?? '—'}
-          sub={`${taskCounts.done ?? 0} done · ${taskCounts.in_progress ?? 0} running`}
-          glyph="▦"
-        />
-        <StatTile
-          label="Workflow runs"
-          value={runs.data?.count ?? '—'}
-          sub={activeRun ? 'One running now' : 'Idle'}
-          accent={activeRun ? 'var(--series-1)' : undefined}
-          glyph="⟳"
-        />
-      </div>
-
-      {/* Commission work */}
-      <div>
-        <SectionTitle
-          title="Commission work"
-          hint="Describe what you want in plain language. The Project Manager breaks it down; the rest of the org executes it."
-        />
-        {projects.data && workflows.data ? (
-          <RunLauncher
-            projects={projects.data.projects}
-            workflows={workflows.data.workflows}
-            defaultProjectId={projectId || undefined}
-            onStarted={runs.refresh}
-          />
-        ) : (
-          <Card><Spinner /></Card>
-        )}
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[1.15fr_1fr]">
-        {/* Org chart */}
-        <Card>
-          <SectionTitle
-            title="The organization"
-            hint={
-              activeAgents.length
-                ? `${activeAgents.join(', ')} working now — animated edges show live data flow`
-                : 'Hover a role to isolate its connections'
-            }
-            right={<Link href="/org" className="text-[11px] text-[var(--series-1)] hover:underline">Details →</Link>}
-          />
-          {agents.data ? (
-            <AgentNetwork agents={agents.data.agents} activeAgents={activeAgents} />
-          ) : (
-            <div className="skeleton h-80 rounded-lg" />
-          )}
-        </Card>
-
-        <div className="space-y-5">
-          {/* Active / recent runs */}
-          <Card>
-            <SectionTitle
-              title="Workflow runs"
-              right={<Link href="/runs" className="text-[11px] text-[var(--series-1)] hover:underline">All →</Link>}
-            />
-            {!runs.data ? (
-              <div className="skeleton h-24 rounded-lg" />
-            ) : !runs.data.runs.length ? (
-              <EmptyState title="No runs yet" hint="Commission work above to start one." />
-            ) : (
-              <ul className="space-y-2.5">
-                {runs.data.runs.slice(0, 5).map((r) => (
-                  <li key={r._id}>
-                    <Link href={`/runs/${r._id}`} className="block rounded-lg border p-2.5 hover:border-[var(--border-strong)]">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-1 text-xs font-medium">{r.request}</p>
-                        <StatusPill status={r.status} size="xs" />
-                      </div>
-                      <p className="mb-1.5 mt-0.5 text-[10px] text-[var(--text-muted)]">
-                        {r.workflow} · {timeAgo(r.createdAt)}
-                      </p>
-                      <PipelineStrip run={r} />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-
-          {/* Task distribution */}
-          <Card>
-            <SectionTitle title="Task pipeline" />
-            {Object.keys(taskCounts).length ? (
-              <StatusBreakdown counts={taskCounts} />
-            ) : (
-              <p className="text-xs text-[var(--text-muted)]">No tasks yet.</p>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Card>
-          <SectionTitle
-            title="Agent workload"
-            hint="Token spend per role. Cost is an estimate at list pricing."
-          />
-          {agents.data ? <UsageChart agents={agents.data.agents} /> : <div className="skeleton h-40 rounded-lg" />}
-        </Card>
-
-        <Card>
-          <SectionTitle
-            title="Message bus"
-            hint="Agents talking to each other — persisted, addressed, auditable."
-          />
-          {messages.data ? (
-            <MessageFeed messages={messages.data.messages} limit={12} />
-          ) : (
-            <div className="skeleton h-40 rounded-lg" />
-          )}
-        </Card>
-      </div>
-    </div>
+    </>
   );
 }
+
+/**
+ * Collapse live runs and tasks into one state per agent.
+ *
+ * A station can show only one state, so the most urgent wins. The ranking is
+ * deliberate: a blocked agent must never be hidden behind a running one, because
+ * blocked is the state that needs a human and running is the state that does
+ * not.
+ */
+function useWorkspaceNodes(liveRuns: WorkflowRun[], tasks: Task[]): WorkspaceNode[] {
+  return useMemo(() => {
+    const rank: Record<AgentState, number> = {
+      blocked: 7,
+      failed: 6,
+      retrying: 5,
+      running: 4,
+      starting: 3,
+      waiting: 2,
+      queued: 1,
+      completed: 0,
+      cancelled: 0,
+      idle: -1,
+    };
+
+    const byAgent = new Map<string, WorkspaceNode>();
+    for (const identity of allAgentIdentities()) {
+      byAgent.set(identity.key, { agentKey: identity.key, state: 'idle', queued: 0 });
+    }
+
+    const consider = (key: string, state: AgentState, activity?: string): void => {
+      const existing = byAgent.get(key) ?? { agentKey: key, state: 'idle' as AgentState, queued: 0 };
+      if (rank[existing.state] >= rank[state]) return;
+      byAgent.set(key, { ...existing, state, activity });
+    };
+
+    for (const run of liveRuns) {
+      const firstPending = run.steps.findIndex((s) => s.status === 'pending');
+      run.steps.forEach((step, index) => {
+        const state = stepState(step.status, {
+          runActive: true,
+          isNext: index === firstPending,
+          attempt: step.attempt,
+        });
+        if (state !== 'idle') consider(step.agentKey, state, step.name);
+      });
+      consider(
+        ORCHESTRATOR_KEY,
+        run.status === 'awaiting_approval' ? 'blocked' : 'running',
+        run.request.length > 46 ? `${run.request.slice(0, 45)}…` : run.request,
+      );
+    }
+
+    for (const task of tasks) {
+      if (!task.assignedTo) continue;
+      const node = byAgent.get(task.assignedTo);
+      if (node && !['done', 'cancelled'].includes(task.status)) {
+        node.queued = (node.queued ?? 0) + 1;
+      }
+      const state = taskState(task.status);
+      if (['blocked', 'running', 'waiting'].includes(state)) consider(task.assignedTo, state, task.title);
+    }
+
+    return [...byAgent.values()];
+  }, [liveRuns, tasks]);
+}
+
+/** Recent messages become packets. Old ones do not — a packet means "now". */
+function useFlows(messages: AgentMessage[], anyLive: boolean): WorkspaceFlow[] {
+  return useMemo(() => {
+    if (!anyLive) return [];
+    const cutoff = Date.now() - 3 * 60 * 1000;
+    return messages
+      .filter((m) => new Date(m.createdAt).getTime() > cutoff)
+      .slice(0, 6)
+      .map((m) => ({ id: m._id, from: m.from, to: m.to, kind: flowKindForIntent(m.intent) }));
+  }, [messages, anyLive]);
+}
+
+interface Alert {
+  id: string;
+  href: string;
+  title: string;
+  action: string;
+  agentKey?: string;
+  severity: 'blocked' | 'failed' | 'waiting';
+}
+
+function buildAlerts(runs: WorkflowRun[], tasks: Task[]): Alert[] {
+  const alerts: Alert[] = [];
+
+  for (const run of runs) {
+    if (run.status === 'awaiting_approval') {
+      const step = run.steps.find((s) => s.status === 'awaiting_approval');
+      alerts.push({
+        id: run._id,
+        href: `/runs/${run._id}`,
+        title: step?.name ?? run.workflow,
+        action: 'Approve to continue',
+        agentKey: step?.agentKey,
+        severity: 'waiting',
+      });
+    } else if (run.status === 'interrupted') {
+      alerts.push({
+        id: run._id,
+        href: `/runs/${run._id}`,
+        title: run.workflow,
+        action: 'Worker stopped — resume or cancel',
+        severity: 'failed',
+      });
+    }
+  }
+
+  for (const task of tasks) {
+    if (task.status === 'blocked') {
+      alerts.push({
+        id: task._id,
+        href: task.workflowRunId ? `/runs/${task.workflowRunId}` : `/projects/${task.projectId}`,
+        title: task.title,
+        action: 'Agent cannot proceed',
+        agentKey: task.assignedTo,
+        severity: 'blocked',
+      });
+    }
+  }
+
+  const order = { blocked: 0, failed: 1, waiting: 2 };
+  return alerts.sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 4);
+}
+
+const ALERT_COLOR = {
+  blocked: 'var(--status-serious)',
+  failed: 'var(--status-critical)',
+  waiting: 'var(--status-warning)',
+};
+
+/**
+ * Work that has stopped and is waiting for a human.
+ *
+ * Anchored left, below the identity block, and present only when there is
+ * something to say. The audit found attention items rendered as plain text with
+ * no route to the thing needing attention; every row here goes straight to it.
+ */
+function AlertStrip({ alerts }: { alerts: Alert[] }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -12 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="pointer-events-auto absolute left-5 top-20 z-20 w-[min(300px,calc(100vw-2.5rem))] space-y-1.5"
+    >
+      <p className="eyebrow pl-1">Waiting on you</p>
+      <AnimatePresence initial={false}>
+        {alerts.map((alert) => (
+          <motion.div key={alert.id} layout initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <Link
+              href={alert.href}
+              className="flex items-start gap-2.5 rounded-xl border p-2.5 backdrop-blur-md transition-colors hover:border-[var(--border-strong)]"
+              style={{
+                background: 'color-mix(in srgb, var(--surface-1) 88%, transparent)',
+                borderColor: `color-mix(in srgb, ${ALERT_COLOR[alert.severity]} 30%, var(--border))`,
+                boxShadow: 'var(--elev-2)',
+              }}
+            >
+              {alert.agentKey ? (
+                <AgentAvatar
+                  agentKey={alert.agentKey}
+                  state={alert.severity === 'waiting' ? 'blocked' : alert.severity}
+                  size={30}
+                  showMonogram={false}
+                />
+              ) : (
+                <span aria-hidden className="mt-0.5 text-[13px]" style={{ color: ALERT_COLOR[alert.severity] }}>
+                  ⚠
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium">{alert.title}</span>
+                <span className="block text-[10.5px]" style={{ color: ALERT_COLOR[alert.severity] }}>
+                  {alert.action} →
+                </span>
+              </span>
+            </Link>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+/**
+ * Standby: the room exists, the team is asleep, nothing is connected.
+ *
+ * The skill's rule for an empty multi-agent system is sleeping agents and a dim
+ * network rather than a generic empty card — the interface should communicate
+ * that the system is ready and waiting, not that it is broken or unbuilt.
+ */
+function StandbyPrompt() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.25, duration: 0.5 }}
+      className="pointer-events-auto absolute bottom-20 left-1/2 z-20 w-[min(560px,calc(100vw-2.5rem))] -translate-x-1/2 lg:bottom-8"
+    >
+      <div
+        className="rounded-2xl border p-5 text-center backdrop-blur-md"
+        style={{
+          background: 'color-mix(in srgb, var(--surface-1) 90%, transparent)',
+          boxShadow: 'var(--elev-3)',
+        }}
+      >
+        <p className="eyebrow">Standby</p>
+        <h1 className="mt-1.5 text-[16px] font-semibold tracking-tight">
+          Six specialists, asleep at their stations
+        </h1>
+        <p className="mx-auto mt-2 max-w-md text-[12px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          They read your repository, plan a change, write it, verify it, and hand you a reviewable
+          pull request. Connect a repository to wake them.
+        </p>
+
+        <div className="mt-4 flex items-center justify-center gap-3">
+          <Link
+            href="/projects"
+            className="rounded-lg px-3.5 py-2 text-[12.5px] font-medium text-white"
+            style={{ background: 'var(--series-1)' }}
+          >
+            Connect a repository
+          </Link>
+          <Link
+            href="/org"
+            className="text-[12px] hover:underline"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            What each role may touch →
+          </Link>
+        </div>
+
+        <p className="mt-3.5 text-[10.5px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          Your code is cloned to this server and read by the model provider you configured. Files
+          matching the secret policy — <code className="hud">.env</code>, keys, credentials — are
+          excluded from indexing and from every prompt.
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+/**
+ * Run status → the visual state used on avatars and badges elsewhere.
+ * Exported here because the run pages render the same vocabulary.
+ */
+export function runVisualState(run: WorkflowRun): AgentState {
+  switch (run.status) {
+    case 'running':
+      return 'running';
+    case 'queued':
+    case 'pending':
+      return 'queued';
+    case 'cancelling':
+      return 'cancelled';
+    case 'awaiting_approval':
+      return 'blocked';
+    case 'completed':
+      return run.outcome === 'needs_review' || run.outcome === 'blocked' ? 'waiting' : 'completed';
+    case 'failed':
+      return 'failed';
+    case 'interrupted':
+      return 'retrying';
+    case 'cancelled':
+    default:
+      return 'cancelled';
+  }
+}
+
+/** Re-exported so other screens can label an agent consistently. */
+export { agentIdentity };

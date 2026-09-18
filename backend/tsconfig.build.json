@@ -1,0 +1,10 @@
+{
+  // Production build: everything in tsconfig.json, minus the tests.
+  //
+  // Shipping test files in the runtime image is a small but real problem for
+  // this platform specifically — the image is the boundary an agent-executed
+  // command runs inside, so every file that does not need to be there is
+  // surface that does not need to exist.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/**/__tests__/**"]
+}

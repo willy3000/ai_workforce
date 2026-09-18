@@ -181,3 +181,165 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 5px; }
 
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   Operations-room surface language
+   --------------------------------------------------------------------------
+   The workforce view is a place, not a form. These utilities give it depth
+   (layered surfaces, a horizon, controlled light) without turning every panel
+   into a glowing box.
+
+   The discipline that keeps it from looking like a toy: intensity is earned.
+   `.lit` is applied only to a surface representing something actually
+   happening, so a calm screen means a calm system. If everything glows, the
+   glow stops carrying information.
+   ========================================================================== */
+
+:root {
+  /* Elevation as a scale, so panels relate to each other rather than each
+     picking its own shadow. */
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 1px rgb(0 0 0 / 0.03);
+  --elev-2: 0 2px 8px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04);
+  --elev-3: 0 12px 32px rgb(0 0 0 / 0.10), 0 2px 8px rgb(0 0 0 / 0.06);
+  /* The ambient field behind the workspace. Warm-neutral, never neon. */
+  --atmosphere: radial-gradient(
+    110% 80% at 50% 0%,
+    color-mix(in srgb, var(--series-1) 5%, transparent) 0%,
+    transparent 62%
+  );
+}
+
+/*
+  Dark-mode depth.
+
+  Split into the same two selectors the colour tokens above use — a media query
+  for "follow the OS" and an explicit attribute for "the user chose dark".
+  Writing this as a single unconditional `:not([data-theme='light'])` rule would
+  apply dark shadows in light mode, because that selector matches whenever the
+  user has not *explicitly* chosen light, including when the OS is light.
+*/
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    --elev-1: 0 1px 2px rgb(0 0 0 / 0.5);
+    --elev-2: 0 4px 14px rgb(0 0 0 / 0.45);
+    --elev-3: 0 18px 44px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
+    --atmosphere: radial-gradient(
+      110% 80% at 50% 0%,
+      color-mix(in srgb, var(--series-1) 11%, transparent) 0%,
+      transparent 64%
+    );
+  }
+}
+
+:root[data-theme='dark'] {
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --elev-2: 0 4px 14px rgb(0 0 0 / 0.45);
+  --elev-3: 0 18px 44px rgb(0 0 0 / 0.55), 0 2px 8px rgb(0 0 0 / 0.4);
+  --atmosphere: radial-gradient(
+    110% 80% at 50% 0%,
+    color-mix(in srgb, var(--series-1) 11%, transparent) 0%,
+    transparent 64%
+  );
+}
+
+/* The application frame carries the atmosphere; panels sit on top of it. */
+.ops-field {
+  background-image: var(--atmosphere);
+  background-attachment: fixed;
+}
+
+/* A panel in the operations room: layered, not flat; bordered, not floating. */
+.panel {
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--elev-1);
+}
+
+.panel-raised {
+  box-shadow: var(--elev-2);
+}
+
+/* Reserved for a surface representing live work. One accent edge plus a faint
+   inner light — enough to draw the eye, not enough to shout. */
+.lit {
+  border-color: color-mix(in srgb, var(--accent, var(--series-1)) 42%, var(--border));
+  box-shadow:
+    var(--elev-2),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent, var(--series-1)) 12%, transparent);
+}
+
+/* A thin status rail along the top edge of a panel. Colour plus position, so
+   two adjacent panels are distinguishable even in greyscale. */
+.rail-top {
+  position: relative;
+  overflow: hidden;
+}
+.rail-top::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--accent, var(--border-strong));
+  opacity: 0.85;
+}
+
+/* Monospaced HUD readout: fixed-width so a changing number does not reflow the
+   label beside it. */
+.hud {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Section eyebrow, used to label regions of the workspace. */
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* A slow ambient sweep for the idle/empty state: the system is asleep, not
+   broken. Deliberately long and low-contrast. */
+@keyframes standby-sweep {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 0.5; }
+}
+.standby {
+  animation: standby-sweep 6s ease-in-out infinite;
+}
+
+/* Entrance for newly-arrived rows, so a list that grows while you watch does
+   not simply jump. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.rise-in {
+  animation: rise-in 0.24s ease-out both;
+}
+
+/*
+  Reduced motion.
+
+  Everything above communicates through colour, position and glyph as well as
+  movement, so removing the movement removes no information. Transitions are
+  shortened rather than zeroed: an instant state swap is its own kind of
+  disorienting, and 1ms keeps React's transition callbacks firing.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .standby,
+  .rise-in {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

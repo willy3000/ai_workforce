@@ -24,7 +24,7 @@ export class ProjectMemory {
   ): Promise<number> {
     const entries: Partial<IKnowledge>[] = [
       {
-        kind: 'architecture' as KnowledgeKind,
+        kind: 'architecture',
         title: 'Detected technology stack',
         content:
           `Languages: ${profile.languages.join(', ') || 'unknown'}. ` +
@@ -35,7 +35,7 @@ export class ProjectMemory {
         confidence: 0.9,
       },
       {
-        kind: 'convention' as KnowledgeKind,
+        kind: 'convention',
         title: 'Repository conventions',
         content: profile.conventions.length
           ? profile.conventions.join('\n')
@@ -44,7 +44,7 @@ export class ProjectMemory {
         confidence: 0.75,
       },
       {
-        kind: 'structure' as KnowledgeKind,
+        kind: 'structure',
         title: 'Build and test commands',
         content:
           `Build: ${profile.buildCommand ?? 'unknown'}\n` +
@@ -58,7 +58,7 @@ export class ProjectMemory {
 
     for (const file of important) {
       entries.push({
-        kind: 'important_file' as KnowledgeKind,
+        kind: 'important_file',
         title: `Key file: ${file.path}`,
         content: file.reason,
         tags: ['structure', 'entrypoint'],
@@ -73,7 +73,7 @@ export class ProjectMemory {
           projectId,
           kind: entry.kind as KnowledgeKind,
           title: entry.title as string,
-          content: entry.content as string,
+          content: entry.content,
           tags: entry.tags ?? [],
           paths: entry.paths ?? [],
           source: 'onboarding',

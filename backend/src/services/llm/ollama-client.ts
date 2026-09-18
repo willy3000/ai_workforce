@@ -1,6 +1,7 @@
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { ProviderError } from '../../utils/errors';
+import { combineSignals } from './types';
 import type {
   LlmCompletionRequest,
   LlmMessage,
@@ -99,7 +100,7 @@ export class OllamaProvider implements LlmProvider {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(10 * 60 * 1000),
+        signal: combineSignals(AbortSignal.timeout(10 * 60 * 1000), request.signal),
       });
     } catch (err) {
       throw new ProviderError(

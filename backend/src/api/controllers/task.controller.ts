@@ -6,6 +6,7 @@ import { agentCoordinator } from '../../orchestrator/agent-coordinator';
 import { taskRouter } from '../../orchestrator/task-router';
 import { agentRegistry } from '../../agents/registry';
 import { ValidationError } from '../../utils/errors';
+import { auditActor } from '../middleware/auth';
 import type { TaskStatus } from '../../database/models/task.model';
 
 const CreateTaskSchema = z.object({
@@ -78,22 +79,26 @@ export const taskController = {
   },
 
   async get(req: Request, res: Response): Promise<void> {
-    const task = await taskRepository.findByIdOrFail(req.params.id!);
+    const task = await taskRepository.findByIdOrFail(req.params.id);
     const thread = await messageRepository.thread(task._id);
     res.json({ task, messages: thread });
   },
 
   /** POST /api/tasks/:id/run — execute the owning agent now. */
   async run(req: Request, res: Response): Promise<void> {
-    const result = await agentCoordinator.runTask(req.params.id!);
-    const task = await taskRepository.findByIdOrFail(req.params.id!);
+    const result = await agentCoordinator.runTask(req.params.id);
+    const task = await taskRepository.findByIdOrFail(req.params.id);
     res.json({ task, result });
   },
 
   /** POST /api/tasks/:id/approve — release a task parked at an approval gate. */
   async approve(req: Request, res: Response): Promise<void> {
-    await agentCoordinator.approveTask(req.params.id!, (req.body?.approvedBy as string) ?? 'human');
-    const task = await taskRepository.findByIdOrFail(req.params.id!);
+    // Parsed rather than cast: the body is untrusted input, and the client's
+    // label is only ever a note attached to the verified actor (audit S8).
+    const schema = z.object({ approvedBy: z.string().max(120).optional() });
+    const { approvedBy } = schema.parse(req.body ?? {});
+    await agentCoordinator.approveTask(req.params.id, auditActor(req, approvedBy));
+    const task = await taskRepository.findByIdOrFail(req.params.id);
     res.json({ task });
   },
 
@@ -107,7 +112,7 @@ export const taskController = {
       note: z.string().max(2000).default(''),
     });
     const { status, note } = schema.parse(req.body);
-    const task = await taskRepository.transition(req.params.id!, status, 'human', note);
+    const task = await taskRepository.transition(req.params.id, status, 'human', note);
     res.json({ task });
   },
 

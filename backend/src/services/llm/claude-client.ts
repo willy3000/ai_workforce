@@ -76,12 +76,16 @@ export class ClaudeProvider implements LlmProvider {
     if (request.tools?.length) params.tools = request.tools;
 
     const startedAt = Date.now();
+    // The SDK accepts a request-level signal; passing the run's signal is what
+    // makes cancelling a run stop the in-flight (and billed) turn (audit E1).
+    const options = request.signal ? { signal: request.signal } : undefined;
     try {
       const message =
         maxTokens > 16_000
-          ? await this.streamed(params)
+          ? await this.streamed(params, options)
           : ((await this.client.messages.create(
               params as never,
+              options,
             )) as unknown as Anthropic.Message);
 
       const response = this.normalize(message);
@@ -98,9 +102,12 @@ export class ClaudeProvider implements LlmProvider {
       return response;
     } catch (err) {
       if (err instanceof Anthropic.APIError) {
-        throw new ProviderError(`Claude API error (${err.status}): ${err.message}`, {
-          status: err.status,
-          type: (err as { type?: string }).type,
+        // `APIError.status` is loosely typed by the SDK; narrow it here rather
+        // than letting an `any` flow into the error envelope the client sees.
+        const status = typeof err.status === 'number' ? err.status : undefined;
+        throw new ProviderError(`Claude API error (${status ?? 'unknown'}): ${err.message}`, {
+          status,
+          type: err.name,
         });
       }
       throw err;
@@ -108,9 +115,12 @@ export class ClaudeProvider implements LlmProvider {
   }
 
   /** Large-output path: streaming avoids the non-streaming HTTP timeout. */
-  private async streamed(params: Record<string, unknown>): Promise<Anthropic.Message> {
-    const stream = this.client.messages.stream(params as never);
-    return (await stream.finalMessage()) as unknown as Anthropic.Message;
+  private async streamed(
+    params: Record<string, unknown>,
+    options?: { signal: AbortSignal },
+  ): Promise<Anthropic.Message> {
+    const stream = this.client.messages.stream(params as never, options);
+    return stream.finalMessage();
   }
 
   private normalize(message: Anthropic.Message): LlmResponse {
@@ -122,7 +132,7 @@ export class ClaudeProvider implements LlmProvider {
         type: 'tool_use',
         id: b.id,
         name: b.name,
-        input: (b.input ?? {}) as Record<string, unknown>,
+        input: (b.input ?? {}),
       }));
 
     const text = content
@@ -147,7 +157,7 @@ export class ClaudeProvider implements LlmProvider {
     return {
       id: message.id,
       model: message.model,
-      stopReason: (message.stop_reason ?? 'end_turn') as string,
+      stopReason: (message.stop_reason ?? 'end_turn'),
       content,
       text,
       toolUses,

@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { env } from '../../config/env';
 import { resolveInside, resolveInsideReal, toPosix } from '../../utils/path-safety';
+import { isSecretPath } from '../../security/secret-paths';
 import { ToolExecutionError } from '../../utils/errors';
 
 /**
@@ -39,6 +40,41 @@ export interface WalkOptions {
   extraIgnores?: string[];
 }
 
+/** Ceilings for model-supplied search, see `Workspace.search`. */
+const MAX_SEARCH_PATTERN_CHARS = 200;
+const MAX_SEARCH_LINE_CHARS = 2_000;
+const SEARCH_TIME_BUDGET_MS = 10_000;
+
+/**
+ * Compile a model-supplied regular expression, rejecting the shapes that cause
+ * catastrophic backtracking.
+ *
+ * This is a screen, not a proof: a sound answer needs a non-backtracking engine.
+ * It is paired with the subject-length cap and the scan deadline above, which
+ * are what actually bound the damage — this just turns the common accidental
+ * cases into a clear error the agent can correct.
+ */
+function compileSearchRegex(pattern: string, caseSensitive: boolean): RegExp {
+  if (pattern.length > MAX_SEARCH_PATTERN_CHARS) {
+    throw new ToolExecutionError(
+      `Search pattern is ${pattern.length} characters, over the ${MAX_SEARCH_PATTERN_CHARS} limit. ` +
+        'Search for a distinctive identifier instead.',
+    );
+  }
+  // Nested quantifiers — (a+)+, (a*)*, (x|y)+* — are the classic blow-up shape.
+  if (/\([^)]*[+*]\s*\)\s*[+*{]/.test(pattern) || /\([^)]*\|[^)]*\)\s*[+*]\s*[+*{]/.test(pattern)) {
+    throw new ToolExecutionError(
+      'Search pattern contains nested quantifiers, which can take exponential time. ' +
+        'Rewrite it without a quantified group inside another quantifier, or search literally.',
+    );
+  }
+  try {
+    return new RegExp(pattern, caseSensitive ? '' : 'i');
+  } catch (err) {
+    throw new ToolExecutionError(`Invalid regular expression: ${(err as Error).message}`);
+  }
+}
+
 export class Workspace {
   public readonly root: string;
 
@@ -65,6 +101,14 @@ export class Workspace {
   }
 
   async readFile(relativePath: string, maxBytes = env.MAX_FILE_BYTES): Promise<string> {
+    // The last gate before `fs`: even a caller that skipped the permission guard
+    // (the indexer has no agent, so no profile) cannot read a credential file.
+    if (isSecretPath(toPosix(relativePath))) {
+      throw new ToolExecutionError(
+        `'${relativePath}' matches the platform secret policy and cannot be read.`,
+        false,
+      );
+    }
     const abs = await resolveInsideReal(this.root, relativePath);
     const stat = await fs.stat(abs).catch(() => null);
     if (!stat) throw new ToolExecutionError(`File not found: ${relativePath}`);
@@ -93,6 +137,23 @@ export class Workspace {
   }
 
   async writeFile(relativePath: string, content: string): Promise<{ bytes: number; created: boolean }> {
+    if (isSecretPath(toPosix(relativePath))) {
+      throw new ToolExecutionError(
+        `'${relativePath}' matches the platform secret policy and cannot be written.`,
+        false,
+      );
+    }
+    // `MAX_FILE_BYTES` gated reads but not writes, so a model could generate a
+    // file far larger than it could ever read back (audit: "Gate generated file
+    // sizes as well as reads").
+    const bytes = Buffer.byteLength(content, 'utf8');
+    if (bytes > env.MAX_FILE_BYTES) {
+      throw new ToolExecutionError(
+        `Refusing to write ${bytes} bytes to '${relativePath}': over the ${env.MAX_FILE_BYTES}-byte ` +
+          'limit. Split the change across files, or write only the section that must change.',
+      );
+    }
+
     const abs = await resolveInsideReal(this.root, relativePath);
     const existed = await fs
       .access(abs)
@@ -100,7 +161,7 @@ export class Workspace {
       .catch(() => false);
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, content, 'utf8');
-    return { bytes: Buffer.byteLength(content, 'utf8'), created: !existed };
+    return { bytes, created: !existed };
   }
 
   async deleteFile(relativePath: string): Promise<void> {
@@ -149,10 +210,14 @@ export class Workspace {
         if (entry.isDirectory()) {
           await visit(abs);
         } else if (entry.isFile()) {
+          const relativePath = toPosix(path.relative(this.root, abs));
+          // Secrets are excluded at the walk, so nothing downstream — indexer,
+          // search, ranker, prompt builder — ever sees them (audit finding S5).
+          if (isSecretPath(relativePath)) continue;
           const stat = await fs.stat(abs).catch(() => null);
           if (!stat) continue;
           results.push({
-            relativePath: toPosix(path.relative(this.root, abs)),
+            relativePath,
             absolutePath: abs,
             bytes: stat.size,
             extension: path.extname(entry.name).toLowerCase(),
@@ -165,14 +230,29 @@ export class Workspace {
     return results;
   }
 
-  /** Literal / regex search across text files. Backs the CodeSearch tool. */
+  /**
+   * Literal / regex search across text files. Backs the CodeSearch tool.
+   *
+   * This runs in the API process on a model-supplied pattern, so it is bounded
+   * three ways (audit finding S9): the pattern is length-limited and screened
+   * for catastrophic backtracking shapes, each candidate line is truncated
+   * before matching so a single pathological line cannot dominate, and the whole
+   * scan carries a wall-clock deadline.
+   */
   async search(
     pattern: string,
-    options: { regex?: boolean; maxResults?: number; pathFilter?: string; caseSensitive?: boolean } = {},
+    options: {
+      regex?: boolean;
+      maxResults?: number;
+      pathFilter?: string;
+      caseSensitive?: boolean;
+      timeBudgetMs?: number;
+    } = {},
   ): Promise<{ path: string; line: number; text: string }[]> {
     const maxResults = options.maxResults ?? 60;
+    const deadline = Date.now() + (options.timeBudgetMs ?? SEARCH_TIME_BUDGET_MS);
     const matcher = options.regex
-      ? new RegExp(pattern, options.caseSensitive ? '' : 'i')
+      ? compileSearchRegex(pattern, options.caseSensitive ?? false)
       : null;
     const needle = options.caseSensitive ? pattern : pattern.toLowerCase();
 
@@ -181,6 +261,7 @@ export class Workspace {
 
     for (const file of files) {
       if (hits.length >= maxResults) break;
+      if (Date.now() > deadline) break;
       if (options.pathFilter && !file.relativePath.includes(options.pathFilter)) continue;
       if (BINARY_EXTENSIONS.has(file.extension)) continue;
       if (file.bytes > env.MAX_FILE_BYTES) continue;
@@ -193,13 +274,17 @@ export class Workspace {
       }
       const lines = content.split('\n');
       for (let i = 0; i < lines.length && hits.length < maxResults; i += 1) {
-        const line = lines[i] ?? '';
+        // Bound the input to the matcher, not just the output: backtracking cost
+        // grows with the subject length, so this is the load-bearing limit.
+        const line = (lines[i] ?? '').slice(0, MAX_SEARCH_LINE_CHARS);
         const found = matcher
           ? matcher.test(line)
           : (options.caseSensitive ? line : line.toLowerCase()).includes(needle);
         if (found) {
           hits.push({ path: file.relativePath, line: i + 1, text: line.trim().slice(0, 300) });
         }
+        // Checking the deadline every 512 lines keeps the check itself cheap.
+        if ((i & 511) === 0 && Date.now() > deadline) break;
       }
     }
     return hits;

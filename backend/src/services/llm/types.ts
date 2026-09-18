@@ -61,6 +61,12 @@ export interface ToolResultBlock {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  /**
+   * Platform-side bookkeeping, stripped before the block is sent to the model.
+   * Carries the repository path a mutating tool actually changed, so the run's
+   * change set is assembled from observed effects (audit finding E8).
+   */
+  changedPath?: string;
 }
 
 export type ContentBlockParam = TextBlock | ToolResultBlock | Record<string, unknown>;
@@ -110,9 +116,30 @@ export interface LlmCompletionRequest {
   thinking?: boolean;
   /** Emit a summarized reasoning trace we can persist for auditability. */
   showThinking?: boolean;
+  /**
+   * Abort the in-flight request. Without this, cancelling a run left the current
+   * provider call to finish and bill in full (audit finding E1) — on a long
+   * reasoning turn that is the majority of a run's cost.
+   */
+  signal?: AbortSignal;
 }
 
 export interface LlmProvider {
   readonly name: string;
   complete(request: LlmCompletionRequest): Promise<LlmResponse>;
+}
+
+/**
+ * Combine a per-request timeout with an optional run-cancellation signal.
+ *
+ * A provider call has two independent reasons to stop — it took too long, or the
+ * operator cancelled the run — and honouring only one leaves the other
+ * unenforced. `AbortSignal.any` (Node 20+) aborts on whichever fires first.
+ */
+export function combineSignals(
+  timeout: AbortSignal,
+  cancellation?: AbortSignal,
+): AbortSignal {
+  if (!cancellation) return timeout;
+  return AbortSignal.any([timeout, cancellation]);
 }

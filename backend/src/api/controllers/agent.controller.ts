@@ -2,11 +2,19 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { agentRegistry } from '../../agents/registry';
 import { agentRuntime } from '../../agents/agent-runtime';
-import { agentRepository, messageRepository } from '../../database/repositories';
+import {
+  agentRepository,
+  messageRepository,
+  projectRepository,
+  taskRepository,
+} from '../../database/repositories';
 import { toolRegistry } from '../../tools/registry';
 import { agentCoordinator } from '../../orchestrator/agent-coordinator';
 import { taskRouter } from '../../orchestrator/task-router';
-import { NotFoundError } from '../../utils/errors';
+import { executionRegistry } from '../../runtime/execution-registry';
+import { auditActor } from '../middleware/auth';
+import { NotFoundError, toErrorMessage } from '../../utils/errors';
+import { truncate } from '../../utils/text';
 
 const RunAgentSchema = z.object({
   agentKey: z.string().min(1),
@@ -51,7 +59,7 @@ export const agentController = {
   },
 
   async get(req: Request, res: Response): Promise<void> {
-    const agent = agentRegistry.get(req.params.key!);
+    const agent = agentRegistry.get(req.params.key);
     if (!agent) throw new NotFoundError('Agent', req.params.key);
     res.json({
       agent: {
@@ -61,20 +69,71 @@ export const agentController = {
     });
   },
 
-  /** POST /api/agents/run — invoke one agent directly (ad-hoc, no workflow). */
+  /**
+   * POST /api/agents/run — invoke one agent directly (ad-hoc, no workflow).
+   *
+   * Audit finding E6/S7: this path bypassed the approval gate entirely. The
+   * workflow engine checked `requiresHumanApproval`, the coordinator checked it,
+   * and this endpoint did not — so a role the platform had decided must never
+   * run unattended could be invoked unattended through the Org screen. It now
+   * goes through the same single authorization policy as every other entry
+   * point.
+   *
+   * It also now leaves a durable execution record. Previously an ad-hoc run with
+   * no `taskId` wrote nothing but agent-wide token counters, so the work was
+   * invisible in the timeline and unattributable afterwards.
+   */
   async run(req: Request, res: Response): Promise<void> {
     const input = RunAgentSchema.parse(req.body);
     if (!agentRegistry.has(input.agentKey)) throw new NotFoundError('Agent', input.agentKey);
 
-    const result = await agentRuntime.run(input.agentKey, {
-      projectId: input.projectId,
-      taskId: input.taskId,
-      prompt: input.prompt,
-      additionalContext: input.additionalContext,
-      maxIterations: input.maxIterations,
-      provider: input.provider,
+    // Direct invocation is never pre-approved: there is no approval receipt to
+    // present, which is exactly why gated roles must refuse it.
+    agentCoordinator.assertExecutionAllowed(input.agentKey, false);
+
+    const project = await projectRepository.findByIdOrFail(input.projectId);
+
+    // Every direct invocation gets a task, so it appears on the board, carries
+    // its artifacts, and can be audited like any other work.
+    const task = await taskRepository.create({
+      projectId: project._id,
+      title: `[Direct] ${truncate(input.prompt, 120)}`,
+      description: input.prompt,
+      type: 'analysis',
+      status: 'in_progress',
+      priority: 'medium',
+      assignedTo: input.agentKey,
+      createdBy: auditActor(req),
     });
-    res.json({ result });
+
+    try {
+      const result = await executionRegistry.withProjectLock(String(project._id), () =>
+        agentRuntime.run(input.agentKey, {
+          projectId: input.projectId,
+          taskId: String(task._id),
+          prompt: input.prompt,
+          additionalContext: input.additionalContext,
+          maxIterations: input.maxIterations,
+          provider: input.provider,
+        }),
+      );
+
+      await taskRepository.transition(
+        task._id,
+        result.succeeded ? 'done' : result.outcome === 'blocked' ? 'blocked' : 'failed',
+        input.agentKey,
+        `Direct invocation ended: ${result.outcome}`,
+        { result: result.output, ...(result.error ? { error: result.error } : {}) },
+      );
+      res.json({ result, taskId: String(task._id) });
+    } catch (err) {
+      await taskRepository
+        .transition(task._id, 'failed', input.agentKey, toErrorMessage(err), {
+          error: toErrorMessage(err),
+        })
+        .catch(() => undefined);
+      throw err;
+    }
   },
 
   /** GET /api/agents/messages?projectId= — read the inter-agent message bus. */

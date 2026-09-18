@@ -7,6 +7,14 @@ services:
     # Uncomment to inspect with a GUI during development.
     # ports:
     #   - "27017:27017"
+    #
+    # Database authentication is enabled because "not published to the host" is
+    # a network control, not an access control: anything that can reach the
+    # container network can otherwise read and write every project, task and
+    # memory record without a credential.
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-aiec}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?set MONGO_PASSWORD in .env}
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -31,23 +39,70 @@ services:
       NODE_ENV: production
       PORT: 4000
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      MONGODB_URI: mongodb://mongo:27017/ai_engineering_company
+      MONGODB_URI: mongodb://${MONGO_USER:-aiec}:${MONGO_PASSWORD}@mongo:27017/ai_engineering_company?authSource=admin
 
       # --- Secrets: supplied from the .env file next to this compose file ---
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      # Required in production — the backend refuses to boot without it.
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:?set PLATFORM_API_KEY in .env}
 
+      # --- Provider selection ---------------------------------------------
+      LLM_PROVIDER: ${LLM_PROVIDER:-claude}
       CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-4-8}
       CLAUDE_EFFORT: ${CLAUDE_EFFORT:-high}
       CLAUDE_MAX_TOKENS: ${CLAUDE_MAX_TOKENS:-16000}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-pro}
+      # `localhost` inside this container is the container, not the host, so an
+      # Ollama server running on the host is reached through the gateway alias.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.6}
       AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-12}
-      REQUIRE_HUMAN_APPROVAL: ${REQUIRE_HUMAN_APPROVAL:-false}
+
+      # --- Safety posture ---------------------------------------------------
+      REQUIRE_HUMAN_APPROVAL: ${REQUIRE_HUMAN_APPROVAL:-true}
+      # No browser talks to this service directly; the Next.js console does,
+      # server to server, and CORS does not apply to that.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-none}
+      # Hosted deployments must not let callers import arbitrary server paths.
+      ALLOW_LOCAL_PATH_IMPORT: ${ALLOW_LOCAL_PATH_IMPORT:-false}
+      GIT_ALLOWED_HOSTS: ${GIT_ALLOWED_HOSTS:-github.com}
+      # Agent commands run in this container, sharing its user, filesystem and
+      # network with untrusted repository code. That is an accepted risk here
+      # and must be stated explicitly rather than defaulted into. To isolate
+      # them properly, set TERMINAL_SANDBOX_COMMAND to a disposable-sandbox
+      # wrapper and remove this flag.
+      ALLOW_UNSANDBOXED_COMMANDS: ${ALLOW_UNSANDBOXED_COMMANDS:-true}
+      TERMINAL_SANDBOX_COMMAND: ${TERMINAL_SANDBOX_COMMAND:-}
+
+      MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-3}
+      RUN_DEADLINE_MS: ${RUN_DEADLINE_MS:-3600000}
+
       WORKSPACE_ROOT: /app/workspaces
     volumes:
       # Cloned repositories survive container restarts. Agents run inside the
       # container; this is the only host-visible surface they write to.
       - workspaces:/app/workspaces
+
+  console:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aiec-console
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${CONSOLE_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      # Server-to-server, over the compose network. The backend never needs to
+      # be published to the host for the console to reach it.
+      BACKEND_URL: http://backend:4000
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY}
+      OPERATOR_PASSWORD: ${OPERATOR_PASSWORD:?set OPERATOR_PASSWORD in .env}
+      SESSION_SECRET: ${SESSION_SECRET:-}
 
 volumes:
   mongo-data:

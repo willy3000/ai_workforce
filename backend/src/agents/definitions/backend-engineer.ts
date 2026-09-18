@@ -27,6 +27,9 @@ export const backendEngineer: AgentDefinition = {
       'internal/**', 'pkg/**', 'cmd/**', 'main/**', 'config/**',
       'tests/**', 'test/**', '__tests__/**', 'spec/**',
       'package.json', 'requirements.txt', 'pyproject.toml', 'go.mod', 'composer.json',
+      // Lockfiles change whenever a dependency is added; without them an install
+      // succeeds and the following commit is denied.
+      'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock', 'go.sum', 'composer.lock',
     ],
     denyPaths: [
       // Deployment surface is off-limits: those changes need human approval.
@@ -42,6 +45,9 @@ export const backendEngineer: AgentDefinition = {
     ],
     allowGitWrite: true,
     maxToolCalls: 60,
+    // In a multi-package repo, the globs above apply inside each package of
+    // these kinds (relative to its directory) and nowhere else.
+    packageKinds: ['backend', 'fullstack', 'unknown'],
   }),
   effort: 'xhigh',
   instructions: `You are a senior Backend Engineer working on a real, existing codebase.

@@ -1,5 +1,6 @@
 import { defineTool, type ToolContext, type ToolResult } from './types';
 import { PermissionGuard } from './permission-guard';
+import { isSecretPath, redactSecrets } from '../security/secret-paths';
 import { truncate } from '../utils/text';
 
 interface ReadInput {
@@ -27,22 +28,28 @@ export const repositoryReaderTool = defineTool<ReadInput>({
     additionalProperties: false,
   },
   async execute(input, ctx: ToolContext): Promise<ToolResult> {
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
-    guard.assertCanRead(input.path);
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
+    const target = guard.assertCanRead(input.path);
 
     if (input.start_line || input.end_line) {
       const slice = await ctx.workspace.readLines(
-        input.path,
+        target,
         input.start_line ?? 1,
         input.end_line ?? (input.start_line ?? 1) + 200,
       );
-      return { output: `--- ${input.path} (lines ${input.start_line ?? 1}-${input.end_line ?? '...'}) ---\n${slice}` };
+      return {
+        output:
+          `--- ${target} (lines ${input.start_line ?? 1}-${input.end_line ?? '...'}) ---\n` +
+          redactSecrets(slice),
+      };
     }
 
-    const content = await ctx.workspace.readFile(input.path);
+    const content = await ctx.workspace.readFile(target);
+    // Second line of defence: the path passed the secret filter, but the file
+    // may still contain a hardcoded credential we do not want in the transcript.
     return {
-      output: `--- ${input.path} ---\n${truncate(content, 60_000)}`,
-      data: { path: input.path, bytes: content.length },
+      output: `--- ${target} ---\n${redactSecrets(truncate(content, 60_000))}`,
+      data: { path: target, bytes: content.length },
     };
   },
 });
@@ -67,16 +74,36 @@ export const listDirectoryTool = defineTool<ListInput>({
     additionalProperties: false,
   },
   async execute(input, ctx): Promise<ToolResult> {
-    const target = input.path ?? '.';
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
-    guard.assertCanRead(target === '.' ? 'README.md' : target);
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
+    const raw = (input.path ?? '.').trim();
+    const isRoot = raw === '' || raw === '.' || raw === './' || raw === '/';
+    // The root has no canonical relative form, and listing it is how an agent
+    // orients itself — so it is always allowed, and the *entries* are filtered.
+    const target = isRoot ? '.' : guard.canonicalPath(raw);
+    if (!isRoot) guard.assertCanRead(target);
 
     const entries = await ctx.workspace.listDirectory(target);
+
+    // A directory listing leaks the existence and naming of files an agent may
+    // not read, so entries are filtered the same way search results are.
+    const visible = entries.filter((entry) => {
+      const name = entry.replace(/\/$/, '');
+      const childPath = isRoot ? name : `${target}/${name}`;
+      // Directories are shown when anything under them could be readable; the
+      // read itself is authorized separately when the agent descends.
+      return entry.endsWith('/')
+        ? !isSecretPath(childPath) && !isSecretPath(`${childPath}/x`)
+        : guard.canRead(childPath);
+    });
+
+    const hidden = entries.length - visible.length;
+    const label = isRoot ? '.' : target;
     return {
-      output: entries.length
-        ? `${target}/\n${entries.map((e) => `  ${e}`).join('\n')}`
-        : `${target}/ is empty`,
-      data: { count: entries.length },
+      output: visible.length
+        ? `${label}/\n${visible.map((e) => `  ${e}`).join('\n')}` +
+          (hidden ? `\n  (${hidden} entr${hidden === 1 ? 'y' : 'ies'} hidden by this agent's read scope)` : '')
+        : `${label}/ has no entries readable by this agent`,
+      data: { count: visible.length, hidden },
     };
   },
 });

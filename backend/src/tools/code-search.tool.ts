@@ -1,5 +1,6 @@
 import { defineTool, type ToolResult } from './types';
 import { PermissionGuard } from './permission-guard';
+import { redactSecrets } from '../security/secret-paths';
 import { codeRepositoryRepository } from '../database/repositories';
 
 interface SearchInput {
@@ -46,21 +47,14 @@ export const codeSearchTool = defineTool<SearchInput>({
 
     // Filter results through the agent's read scope so search cannot be used to
     // exfiltrate the contents of files the agent may not read.
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
-    const visible = hits.filter((hit) => {
-      try {
-        guard.assertCanRead(hit.path);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
+    const visible = hits.filter((hit) => guard.canRead(hit.path));
 
     if (!visible.length) {
       return { output: `No matches for '${input.pattern}' within this agent's readable scope.` };
     }
     return {
-      output: visible.map((h) => `${h.path}:${h.line}: ${h.text}`).join('\n'),
+      output: redactSecrets(visible.map((h) => `${h.path}:${h.line}: ${h.text}`).join('\n')),
       data: { matches: visible.length },
     };
   },
@@ -93,7 +87,7 @@ export const findFilesTool = defineTool<FindFilesInput>({
   async execute(input, ctx): Promise<ToolResult> {
     const index = await codeRepositoryRepository.getFileIndex(ctx.projectId);
     const needle = input.query.toLowerCase();
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
 
     const scored = index
       .map((entry) => {
@@ -109,14 +103,7 @@ export const findFilesTool = defineTool<FindFilesInput>({
       })
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
-      .filter((r) => {
-        try {
-          guard.assertCanRead(r.entry.path);
-          return true;
-        } catch {
-          return false;
-        }
-      })
+      .filter((r) => guard.canRead(r.entry.path))
       .slice(0, Math.min(input.limit ?? 25, 100));
 
     if (!scored.length) {

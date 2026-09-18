@@ -33,7 +33,7 @@ export const projectController = {
   },
 
   async get(req: Request, res: Response): Promise<void> {
-    const project = await projectRepository.findByIdOrFail(req.params.id!);
+    const project = await projectRepository.findByIdOrFail(req.params.id);
     const repository = await codeRepositoryRepository.findByProject(project._id);
     res.json({
       project,
@@ -54,26 +54,26 @@ export const projectController = {
 
   /** POST /api/projects/:id/reanalyze — refresh the profile and file index. */
   async reanalyze(req: Request, res: Response): Promise<void> {
-    const project = await onboardingService.reanalyze(req.params.id!);
+    const project = await onboardingService.reanalyze(req.params.id);
     res.json({ project });
   },
 
   /** GET /api/projects/:id/memory — everything the platform knows. */
   async memory(req: Request, res: Response): Promise<void> {
-    const snapshot = await projectMemory.snapshot(req.params.id!);
+    const snapshot = await projectMemory.snapshot(req.params.id);
     res.json(snapshot);
   },
 
   /** GET /api/projects/:id/status — tasks, counts and recent agent chatter. */
   async status(req: Request, res: Response): Promise<void> {
-    const status = await agentCoordinator.projectStatus(req.params.id!);
+    const status = await agentCoordinator.projectStatus(req.params.id);
     res.json(status);
   },
 
   async updateInstructions(req: Request, res: Response): Promise<void> {
     const schema = z.object({ customInstructions: z.string().max(20_000) });
     const { customInstructions } = schema.parse(req.body);
-    const project = await projectRepository.update(req.params.id!, { customInstructions });
+    const project = await projectRepository.update(req.params.id, { customInstructions });
     res.json({ project });
   },
 
@@ -85,7 +85,7 @@ export const projectController = {
         'Disconnecting deletes the workspace and all project memory. Re-send with ?confirm=true.',
       );
     }
-    await onboardingService.disconnect(req.params.id!);
+    await onboardingService.disconnect(req.params.id);
     res.status(204).send();
   },
 };

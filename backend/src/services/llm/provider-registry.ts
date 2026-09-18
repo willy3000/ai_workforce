@@ -74,7 +74,7 @@ export function resolveProvider(preferred?: string): LlmProvider {
     );
   }
 
-  const fallback = alternatives[0]!;
+  const fallback = alternatives[0];
   logger.warn(
     { requested, fallback },
     `LLM provider '${requested}' has no API key configured — falling back to '${fallback}'`,

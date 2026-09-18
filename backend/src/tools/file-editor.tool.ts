@@ -34,20 +34,22 @@ export const writeFileTool = defineTool<WriteFileInput>({
     additionalProperties: false,
   },
   async execute(input, ctx): Promise<ToolResult> {
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
-    guard.assertCanWrite(input.path);
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
+    // The guard returns the canonical path; acting on anything else would mean
+    // authorizing one target and writing another (audit finding S4).
+    const target = guard.assertCanWrite(input.path);
 
-    const { bytes, created } = await ctx.workspace.writeFile(input.path, input.content);
+    const { bytes, created } = await ctx.workspace.writeFile(target, input.content);
     await ctx.recordArtifact({
       type: 'file',
-      path: input.path,
+      path: target,
       content: `${created ? 'created' : 'updated'} (${bytes} bytes): ${input.reason}`,
     });
-    ctx.logger.info({ path: input.path, bytes, created }, 'Agent wrote file');
+    ctx.logger.info({ path: target, bytes, created }, 'Agent wrote file');
 
     return {
-      output: `${created ? 'Created' : 'Updated'} ${input.path} (${bytes} bytes).`,
-      data: { path: input.path, bytes, created },
+      output: `${created ? 'Created' : 'Updated'} ${target} (${bytes} bytes).`,
+      data: { path: target, bytes, created },
     };
   },
 });
@@ -85,35 +87,35 @@ export const editFileTool = defineTool<EditFileInput>({
     additionalProperties: false,
   },
   async execute(input, ctx): Promise<ToolResult> {
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
-    guard.assertCanWrite(input.path);
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
+    const target = guard.assertCanWrite(input.path);
 
-    const content = await ctx.workspace.readFile(input.path);
+    const content = await ctx.workspace.readFile(target);
     const occurrences = content.split(input.old_string).length - 1;
 
     if (occurrences === 0) {
       throw new ToolExecutionError(
-        `old_string not found in ${input.path}. Read the file again — its current contents ` +
+        `old_string not found in ${target}. Read the file again — its current contents ` +
           'may differ from what you assumed (whitespace and indentation must match exactly).',
       );
     }
     if (occurrences > 1) {
       throw new ToolExecutionError(
-        `old_string appears ${occurrences} times in ${input.path}. Add surrounding context to ` +
+        `old_string appears ${occurrences} times in ${target}. Add surrounding context to ` +
           'make it unique, or perform the edits one at a time.',
       );
     }
 
     const updated = content.replace(input.old_string, input.new_string);
-    const { bytes } = await ctx.workspace.writeFile(input.path, updated);
+    const { bytes } = await ctx.workspace.writeFile(target, updated);
     await ctx.recordArtifact({
       type: 'file',
-      path: input.path,
+      path: target,
       content: `edited: ${input.reason}\n- ${truncate(input.old_string, 400)}\n+ ${truncate(input.new_string, 400)}`,
     });
-    ctx.logger.info({ path: input.path, bytes }, 'Agent edited file');
+    ctx.logger.info({ path: target, bytes }, 'Agent edited file');
 
-    return { output: `Edited ${input.path} (now ${bytes} bytes).`, data: { path: input.path } };
+    return { output: `Edited ${target} (now ${bytes} bytes).`, data: { path: target } };
   },
 });
 
@@ -138,15 +140,15 @@ export const deleteFileTool = defineTool<DeleteFileInput>({
     additionalProperties: false,
   },
   async execute(input, ctx): Promise<ToolResult> {
-    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey);
-    guard.assertCanWrite(input.path);
+    const guard = new PermissionGuard(ctx.permissions, ctx.agentKey, ctx.packages);
+    const target = guard.assertCanWrite(input.path);
 
-    const stat = await ctx.workspace.stat(input.path);
-    if (!stat) throw new ToolExecutionError(`File not found: ${input.path}`);
+    const stat = await ctx.workspace.stat(target);
+    if (!stat) throw new ToolExecutionError(`File not found: ${target}`);
     if (stat.isDirectory) throw new ToolExecutionError('Refusing to delete a directory');
 
-    await ctx.workspace.deleteFile(input.path);
-    await ctx.recordArtifact({ type: 'file', path: input.path, content: `deleted: ${input.reason}` });
-    return { output: `Deleted ${input.path}.`, data: { path: input.path } };
+    await ctx.workspace.deleteFile(target);
+    await ctx.recordArtifact({ type: 'file', path: target, content: `deleted: ${input.reason}` });
+    return { output: `Deleted ${target}.`, data: { path: target } };
   },
 });

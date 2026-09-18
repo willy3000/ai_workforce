@@ -39,6 +39,10 @@ npm install
 npm run dev                   # http://localhost:4000
 ```
 
+`WORKSPACE_ROOT=./workspaces` is anchored to the `backend` directory, so the
+same project checkouts are used when the API is launched from the repository
+root or from `backend`.
+
 Verify:
 
 ```bash

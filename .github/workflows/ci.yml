@@ -1,0 +1,110 @@
+name: CI
+
+# The audit's release-assurance finding was that there were no checked-in tests
+# and no CI workflow, so nothing stopped a change that broke the permission
+# guard or the clone allowlist from being merged. This runs the same checks a
+# developer runs locally — `npm run verify` in each package — plus a dependency
+# audit, on every push and pull request.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Advisories appear without anyone pushing, so the audit job also runs on a
+  # schedule. A dependency that was clean on Friday can be critical on Monday.
+  schedule:
+    - cron: '0 6 * * 1'
+
+# A new push supersedes an in-flight run for the same ref: there is no value in
+# finishing a check against code nobody will merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      # `ci` not `install`: the lockfile is the contract, and a CI run that
+      # quietly resolves different versions than the developer had is not a
+      # check of the same code.
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+        env:
+          # The unit tests do not touch Mongo, but `config/env.ts` validates the
+          # environment at import time and exits on a missing required variable.
+          MONGODB_URI: mongodb://localhost:27017/ci
+          NODE_ENV: test
+
+      - name: Build
+        run: npm run build
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    strategy:
+      # Report both packages even when one fails, so a fix covers everything in
+      # one pass rather than one advisory per run.
+      fail-fast: false
+      matrix:
+        package: [backend, frontend]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Production dependencies only, and no install scripts: this job reads the
+      # lockfile, it does not need to execute anything from it.
+      - name: Audit production dependencies
+        run: npm audit --package-lock-only --omit=dev --audit-level=high

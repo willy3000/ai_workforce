@@ -6,6 +6,8 @@ import { connectDatabase, disconnectDatabase, ensureIndexes } from './database/c
 import { Workspace } from './integrations/filesystem/workspace';
 import { syncAgentRoster } from './scripts/seed-agents';
 import { validateRegistries } from './bootstrap/validate-registries';
+import { recoverOrphanedRuns } from './bootstrap/recover-runs';
+import { executionRegistry } from './runtime/execution-registry';
 import { agentRegistry } from './agents/registry';
 import { workflowRegistry } from './workflows';
 import { toolRegistry } from './tools/registry';
@@ -26,6 +28,10 @@ async function bootstrap(): Promise<void> {
   await ensureIndexes();
   await Workspace.ensureRoot();
   await syncAgentRoster();
+
+  // Reconcile runs abandoned by a previous process before accepting traffic, so
+  // an operator never sees a run that claims to be executing and is not (E4).
+  await recoverOrphanedRuns();
 
   const app = createApp();
   const server: Server = app.listen(env.PORT, () => {
@@ -50,6 +56,15 @@ async function bootstrap(): Promise<void> {
       process.exit(1);
     }, 30_000);
     forced.unref();
+
+    // Stop agent work first. Without this, shutdown waits on model calls that
+    // may have minutes left, hits the force-exit above, and leaves runs marked
+    // `running` with a lease nobody holds — the exact state recovery exists to
+    // clean up. Cancelling first means those runs record why they stopped.
+    const cancelled = executionRegistry.cancelAll('Platform is shutting down');
+    if (cancelled.length) {
+      logger.info({ runIds: cancelled }, 'Signalled cancellation to in-flight runs');
+    }
 
     server.close(async () => {
       await disconnectDatabase();

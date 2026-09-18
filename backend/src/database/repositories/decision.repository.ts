@@ -25,6 +25,19 @@ export class DecisionRepository {
     await DecisionModel.updateOne({ _id: oldId }, { $set: { status: 'superseded' } }).exec();
     await DecisionModel.updateOne({ _id: newId }, { $set: { supersedes: oldId } }).exec();
   }
+
+  /**
+   * Remove every record owned by a project.
+   *
+   * Part of completing project deletion (audit: "Deletion is incomplete").
+   * Scoped by `projectId` alone, which is safe here only because disconnect has
+   * already established the caller owns the project; when tenancy arrives this
+   * filter gains a workspace equality term alongside it.
+   */
+  async deleteByProject(projectId: string | Types.ObjectId): Promise<number> {
+    const result = await DecisionModel.deleteMany({ projectId }).exec();
+    return result.deletedCount ?? 0;
+  }
 }
 
 export const decisionRepository = new DecisionRepository();

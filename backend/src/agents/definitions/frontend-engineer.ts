@@ -29,6 +29,9 @@ export const frontendEngineer: AgentDefinition = {
       'public/**', 'resources/js/**', 'resources/views/**', 'resources/css/**',
       'frontend/**', 'client/**', 'web/**',
       '**/*.css', '**/*.scss', '**/*.vue', '**/*.svelte',
+      // Adding a UI dependency is frontend work. Scoped by `packageKinds`, so in a
+      // multi-package repo this is the frontend package's manifest only.
+      'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
     ],
     denyPaths: [
       // Server-side and deployment surfaces belong to other roles.
@@ -40,6 +43,9 @@ export const frontendEngineer: AgentDefinition = {
     allowedCommands: ['npm', 'npx', 'pnpm', 'yarn', 'node', 'tsc', 'vite', 'eslint', 'prettier'],
     allowGitWrite: true,
     maxToolCalls: 60,
+    // In a multi-package repo, the globs above apply inside each package of
+    // these kinds (relative to its directory) and nowhere else.
+    packageKinds: ['frontend', 'fullstack', 'unknown'],
   }),
   effort: 'xhigh',
   instructions: `You are a senior Frontend Engineer working on a real, existing codebase.

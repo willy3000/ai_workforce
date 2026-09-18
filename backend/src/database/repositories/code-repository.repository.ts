@@ -56,6 +56,19 @@ export class CodeRepositoryRepository {
       .exec();
     return doc?.fileIndex ?? [];
   }
+
+  /**
+   * Remove every record owned by a project.
+   *
+   * Part of completing project deletion (audit: "Deletion is incomplete").
+   * Scoped by `projectId` alone, which is safe here only because disconnect has
+   * already established the caller owns the project; when tenancy arrives this
+   * filter gains a workspace equality term alongside it.
+   */
+  async deleteByProject(projectId: string | Types.ObjectId): Promise<number> {
+    const result = await RepositoryModel.deleteMany({ projectId }).exec();
+    return result.deletedCount ?? 0;
+  }
 }
 
 export const codeRepositoryRepository = new CodeRepositoryRepository();

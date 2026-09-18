@@ -17,6 +17,10 @@
     "declaration": false,
     "types": ["node"]
   },
+  // Tests are included here on purpose: this config is what the editor and
+  // `npm run typecheck` use, and a test that does not typecheck is a test that
+  // will fail confusingly later. The *build* uses tsconfig.build.json, which
+  // excludes them so they never reach the production image.
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
