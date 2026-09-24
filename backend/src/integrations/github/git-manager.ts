@@ -4,6 +4,7 @@ import simpleGit, { type SimpleGit } from 'simple-git';
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { ToolExecutionError } from '../../utils/errors';
+import { isSecretPath } from '../../security/secret-paths';
 
 /**
  * Local git operations on a project's checkout.
@@ -204,9 +205,11 @@ export class GitManager {
   }
 
   /** Commit what is staged. Returns null when nothing is staged. */
-  async commit(message: string): Promise<string | null> {
+  async commit(message: string, paths?: string[]): Promise<string | null> {
     const git = await this.g();
-    const staged = (await git.raw(['diff', '--cached', '--name-only'])).trim();
+    const selected = paths?.map((p) => `:(literal)${p}`);
+    if (selected && !selected.length) return null;
+    const staged = (await git.raw(['diff', '--cached', '--name-only', ...(selected ? ['--', ...selected] : [])])).trim();
     if (!staged) return null;
     // Identity is passed per command rather than read from the repository's
     // config: an imported repository may have none, and the commit would fail.
@@ -214,16 +217,28 @@ export class GitManager {
       '-c', `user.name=${env.GIT_AUTHOR_NAME}`,
       '-c', `user.email=${env.GIT_AUTHOR_EMAIL}`,
       'commit', '--no-verify', '-q', '-m', message,
+      ...(selected ? ['--only', '--', ...selected] : []),
     ]);
     return this.headCommit();
   }
 
-  async diff(staged = false, maxChars = 40_000): Promise<string> {
-    const args = staged ? ['--cached'] : [];
+  async diff(staged = false, maxChars = 40_000, paths?: string[]): Promise<string> {
+    if (paths && !paths.length) return '';
+    const args = [...(staged ? ['--cached'] : []), ...(paths ? ['--', ...paths.map((p) => `:(literal)${p}`)] : [])];
     const output = await (await this.g()).diff(args);
     return output.length > maxChars
       ? `${output.slice(0, maxChars)}\n... [diff truncated at ${maxChars} characters]`
       : output;
+  }
+
+  /** Committed + staged + unstaged feature changes, without exposing local secrets. */
+  async reviewDiff(base = 'HEAD', maxChars = 40_000): Promise<string> {
+    const git = await this.g();
+    const paths = (await git.raw(['diff', '--name-only', '-z', base, '--']))
+      .split('\0').filter((p) => p && !isSecretPath(p));
+    if (!paths.length) return '';
+    const output = await git.diff([base, '--', ...paths.map((p) => `:(literal)${p}`)]);
+    return output.length > maxChars ? `${output.slice(0, maxChars)}\n... [diff truncated]` : output;
   }
 
   async diffAgainst(base: string, maxChars = 40_000): Promise<string> {

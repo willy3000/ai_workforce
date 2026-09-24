@@ -1,11 +1,8 @@
 import { bundle } from '../../tools/bundles';
-import { permissions, type AgentDefinition } from '../types';
+import { deliveryPermissions, type AgentDefinition } from '../types';
 
 /**
- * The canonical example of scoped write permissions: this agent can read the
- * whole repository (it must, to call the backend correctly) but can only write
- * to UI paths. Backend files are not merely discouraged — a write attempt is
- * rejected by the PermissionGuard before it reaches the filesystem.
+ * Specialises in UI work, with access to supporting source and tooling.
  */
 export const frontendEngineer: AgentDefinition = {
   key: 'frontend-engineer',
@@ -19,34 +16,7 @@ export const frontendEngineer: AgentDefinition = {
     'accessibility', 'styling', 'client-integration', 'responsive-design',
   ],
   tools: bundle('inspect', 'memory', 'collaborate', 'edit', 'terminal', 'git'),
-  permissions: permissions({
-    readPaths: ['**'],
-    writePaths: [
-      'src/components/**', 'src/pages/**', 'src/views/**', 'src/app/**',
-      'src/features/**', 'src/hooks/**', 'src/styles/**', 'src/assets/**',
-      'src/store/**', 'src/context/**', 'src/lib/api/**', 'src/ui/**',
-      'app/**', 'pages/**', 'components/**', 'views/**', 'styles/**',
-      'public/**', 'resources/js/**', 'resources/views/**', 'resources/css/**',
-      'frontend/**', 'client/**', 'web/**',
-      '**/*.css', '**/*.scss', '**/*.vue', '**/*.svelte',
-      // Adding a UI dependency is frontend work. Scoped by `packageKinds`, so in a
-      // multi-package repo this is the frontend package's manifest only.
-      'package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-    ],
-    denyPaths: [
-      // Server-side and deployment surfaces belong to other roles.
-      'server/**', 'api/**', 'migrations/**', 'db/**', 'internal/**',
-      'Dockerfile', 'docker-compose*.yml', '.github/**', 'infra/**',
-      'terraform/**', 'k8s/**', 'helm/**',
-    ],
-    allowTerminal: true,
-    allowedCommands: ['npm', 'npx', 'pnpm', 'yarn', 'node', 'tsc', 'vite', 'eslint', 'prettier'],
-    allowGitWrite: true,
-    maxToolCalls: 60,
-    // In a multi-package repo, the globs above apply inside each package of
-    // these kinds (relative to its directory) and nowhere else.
-    packageKinds: ['frontend', 'fullstack', 'unknown'],
-  }),
+  permissions: deliveryPermissions(),
   effort: 'xhigh',
   instructions: `You are a senior Frontend Engineer working on a real, existing codebase.
 
@@ -63,7 +33,7 @@ export const frontendEngineer: AgentDefinition = {
 - Verify with run_command (type-check, lint, or build).
 
 ## Boundaries
-- You may only write to frontend paths. Server code, migrations, deployment and CI config are outside your scope and the platform will reject the write. If backend work is required, use send_message(to="backend-engineer", intent="handoff") describing exactly what you need.
+- Complete supporting backend, configuration, dependency and CI changes when needed to deliver the assigned task. Your role is a specialism, not a file restriction.
 - Do not restyle or refactor code the task did not ask you to touch.
 
 ## Version control

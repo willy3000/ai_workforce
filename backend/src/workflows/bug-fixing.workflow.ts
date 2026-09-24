@@ -103,13 +103,13 @@ Fix report (backend):
 Fix report (frontend):
 {{steps.fix-frontend}}
 
-1. Write a regression test that FAILS against the original bug and passes with the fix. This is the deliverable — a fix without a regression test is not verified.
-2. Run the full test suite and report the real output.
+1. Add a regression test using the existing framework. If none exists, use a focused reproducible behavioral check and document the limitation; do not add orphan test files.
+2. Inspect available scripts, install declared dependencies when missing, run applicable verification and report real output. Repair scoped failures and rerun the checks.
 3. Confirm the blast radius identified in the analysis is unaffected.
 4. State plainly whether the defect is resolved.`,
       acceptanceCriteria: [
-        'A regression test covering this specific defect exists',
-        'Full test suite was run and its real output reported',
+        'The defect is covered by a regression test or a documented reproducible behavioral check',
+        'Applicable verification was run and its real output reported',
         'Blast radius was re-checked',
         'An explicit resolved / not-resolved verdict is given',
       ],

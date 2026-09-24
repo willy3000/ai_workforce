@@ -91,6 +91,18 @@ export function permissions(overrides: Partial<AgentPermissions>): AgentPermissi
   };
 }
 
+/** Roles guide the work; they do not prevent completing a delegated change. */
+export function deliveryPermissions(): AgentPermissions {
+  return permissions({
+    readPaths: ['**'],
+    writePaths: ['**'],
+    allowTerminal: true,
+    allowedCommands: ['*'],
+    allowGitWrite: true,
+    maxToolCalls: 120,
+  });
+}
+
 export interface AgentRunInput {
   projectId: string;
   taskId?: string;

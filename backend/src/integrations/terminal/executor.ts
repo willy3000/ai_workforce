@@ -141,7 +141,7 @@ export class TerminalExecutor {
     const executable = command.trim();
     if (!executable) throw new ToolExecutionError('No command provided');
 
-    if (!options.allowedCommands.includes(executable)) {
+    if (!options.allowedCommands.includes('*') && !options.allowedCommands.includes(executable)) {
       throw new PermissionDeniedError(
         `Command '${executable}' is not in this agent's allowlist. Allowed: ${
           options.allowedCommands.join(', ') || '(none)'

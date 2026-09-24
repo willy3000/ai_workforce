@@ -37,6 +37,8 @@ export interface ToolContext {
   git?: GitManager;
   /** The platform-owned branch for the current workflow run, if any. */
   runBranch?: string;
+  /** Per-repository baseline for reviewing the complete feature diff. */
+  runRepos?: import('../database/models/workflow-run.model').IRunRepoState[];
   logger: Logger;
   /**
    * Cancellation for the owning run. Tools that spawn processes or make network

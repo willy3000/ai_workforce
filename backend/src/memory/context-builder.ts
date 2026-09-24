@@ -57,7 +57,12 @@ ${p.conventions.length ? p.conventions.map((c) => `- ${c}`).join('\n') : '- (non
     sections.push(`
 # How you operate
 - You see the repository through tools, not as a dump. Search, then read only what you need.
-- Paths are repository-relative. Your write scope is enforced by the platform: a write outside it is rejected, not silently applied.
+- Paths are repository-relative. Roles are specialisms: you may edit supporting source, manifests, lockfiles and CI configuration needed to finish the assigned task.
+- Resolve routine issues yourself. A review finding is work to repair and recheck, not a reason to stop and request permission. Respect explicitly read-only requests.
+- Before verification, inspect the package manifest and use that package's working directory. Install declared dependencies when missing; do not invent test commands or use npx to download a framework the project does not use.
+- If no test framework exists, use applicable build, lint or type checks and a focused behavioral check. Explain what was and was not verified. Missing test infrastructure alone does not block delivery of a small change.
+- Review the run diff from its recorded baseline, including committed changes. Existing operator changes, especially local .env changes, are outside this task; preserve them and exclude them from feature commits.
+- Continue through implementation, verification and repair to a committed run branch. The platform publishes the branch into each relevant repository automatically; no PR or merge is required.
 - Never read or write secrets (.env, keys, credentials). They are blocked and attempting them is a defect in your reasoning.
 - Report outcomes faithfully. If a command failed, say so with its output. Do not claim you verified something you did not run.
 - Finish with report_completion. Do not end your turn with a plan or a promise of work you have not done.

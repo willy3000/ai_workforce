@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { api } from '@/lib/api';
 import { useLocalState, usePoll } from '@/lib/hooks';
+import { runNeedsAttention } from '@/lib/run-actions';
 import { runVisualState } from '@/app/page';
 import { AgentAvatar, AgentStateBadge } from '@/components/agents/AgentAvatar';
 import { AGENT_STATE, agentIdentity, stepState } from '@/lib/agent-visuals';
@@ -36,7 +37,6 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 const LIVE = new Set(['queued', 'running', 'cancelling']);
-const ATTENTION = new Set(['awaiting_approval', 'interrupted', 'failed']);
 
 export default function MissionsPage() {
   const [projectId, setProjectId] = useLocalState<string>('aiec-project', '');
@@ -50,7 +50,7 @@ export default function MissionsPage() {
 
   const counts = useMemo(
     () => ({
-      attention: all.filter((r) => ATTENTION.has(r.status)).length,
+      attention: all.filter(runNeedsAttention).length,
       live: all.filter((r) => LIVE.has(r.status)).length,
       finished: all.filter((r) => ['completed', 'cancelled'].includes(r.status)).length,
       all: all.length,
@@ -61,7 +61,7 @@ export default function MissionsPage() {
   const visible = useMemo(() => {
     switch (filter) {
       case 'attention':
-        return all.filter((r) => ATTENTION.has(r.status));
+        return all.filter(runNeedsAttention);
       case 'live':
         return all.filter((r) => LIVE.has(r.status));
       case 'finished':
@@ -170,7 +170,7 @@ function MissionStrip({ run }: { run: WorkflowRun }) {
   const style = AGENT_STATE[state];
   const accent = style.color;
   const changed = run.changeSet?.changedPaths?.length ?? 0;
-  const checks = run.changeSet?.checks ?? [];
+  const checks = [...new Map((run.changeSet?.checks ?? []).map((check) => [check.command, check])).values()];
   const passed = checks.filter((c) => c.passed).length;
 
   return (

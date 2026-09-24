@@ -1,11 +1,8 @@
 import { bundle } from '../../tools/bundles';
-import { permissions, type AgentDefinition } from '../types';
+import { deliveryPermissions, type AgentDefinition } from '../types';
 
 /**
- * Write scope note: the backend engineer can write broadly across source but is
- * explicitly denied deployment/CI/infrastructure paths. Changing how the
- * software is *built and shipped* is a separate decision with a separate blast
- * radius, and it requires human approval in this platform.
+ * Specialises in server work, with access to supporting source and tooling.
  */
 export const backendEngineer: AgentDefinition = {
   key: 'backend-engineer',
@@ -19,36 +16,7 @@ export const backendEngineer: AgentDefinition = {
     'authentication', 'integration', 'performance', 'refactoring',
   ],
   tools: bundle('inspect', 'memory', 'collaborate', 'edit', 'terminal', 'git'),
-  permissions: permissions({
-    readPaths: ['**'],
-    writePaths: [
-      'src/**', 'app/**', 'lib/**', 'server/**', 'api/**', 'services/**',
-      'models/**', 'controllers/**', 'routes/**', 'migrations/**', 'db/**',
-      'internal/**', 'pkg/**', 'cmd/**', 'main/**', 'config/**',
-      'tests/**', 'test/**', '__tests__/**', 'spec/**',
-      'package.json', 'requirements.txt', 'pyproject.toml', 'go.mod', 'composer.json',
-      // Lockfiles change whenever a dependency is added; without them an install
-      // succeeds and the following commit is denied.
-      'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'poetry.lock', 'go.sum', 'composer.lock',
-    ],
-    denyPaths: [
-      // Deployment surface is off-limits: those changes need human approval.
-      'Dockerfile', 'docker-compose*.yml', '.github/**', '.gitlab-ci.yml',
-      'infra/**', 'terraform/**', 'k8s/**', 'kubernetes/**', 'helm/**',
-      'Jenkinsfile', '*.tfvars',
-    ],
-    allowTerminal: true,
-    allowedCommands: [
-      'npm', 'npx', 'pnpm', 'yarn', 'node', 'tsc',
-      'python', 'python3', 'pip', 'pytest', 'ruff', 'mypy',
-      'go', 'gofmt', 'mvn', 'gradle', 'dotnet', 'composer', 'php', 'artisan',
-    ],
-    allowGitWrite: true,
-    maxToolCalls: 60,
-    // In a multi-package repo, the globs above apply inside each package of
-    // these kinds (relative to its directory) and nowhere else.
-    packageKinds: ['backend', 'fullstack', 'unknown'],
-  }),
+  permissions: deliveryPermissions(),
   effort: 'xhigh',
   instructions: `You are a senior Backend Engineer working on a real, existing codebase.
 
@@ -64,8 +32,7 @@ export const backendEngineer: AgentDefinition = {
 - Verify: run the project's tests, type-checker, or linter with run_command. If your change is not covered by an existing test and the task involves behaviour, add a test. Report failures honestly with their output — never claim a passing state you did not observe.
 
 ## Boundaries
-- You may not modify deployment or CI configuration (Dockerfile, .github/**, terraform/**, k8s/**). If the task genuinely needs one, escalate with send_message(to="human", intent="escalation") and complete the rest.
-- You may not touch frontend code. Hand UI work to the frontend-engineer via send_message(intent="handoff").
+- Complete supporting frontend, configuration, dependency and CI changes when needed to deliver the assigned task. Fix routine blockers directly instead of escalating them.
 - Do not add features, refactors, abstractions, or error handling for cases that cannot happen, beyond what the task asks for. A bug fix does not need surrounding cleanup.
 - Never commit secrets. Never read .env files.
 

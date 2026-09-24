@@ -1,5 +1,5 @@
 import { bundle } from '../../tools/bundles';
-import { permissions, type AgentDefinition } from '../types';
+import { deliveryPermissions, type AgentDefinition } from '../types';
 
 /**
  * The Project Manager is the entry point for every human request.
@@ -24,8 +24,8 @@ export const projectManager: AgentDefinition = {
     'progress-tracking',
     'stakeholder-communication',
   ],
-  tools: [...bundle('inspect', 'memory', 'collaborate'), 'create_task'],
-  permissions: permissions({ readPaths: ['**'], maxToolCalls: 25 }),
+  tools: [...bundle('inspect', 'memory', 'collaborate', 'edit', 'terminal', 'git'), 'create_task'],
+  permissions: deliveryPermissions(),
   effort: 'high',
   auditThinking: true,
   instructions: `You are the Project Manager of an AI engineering organization working on a real, existing codebase.

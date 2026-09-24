@@ -287,6 +287,12 @@ export interface ReadyState {
   };
 }
 
+export interface WorkforceSettings {
+  accessMode: 'full_access' | 'requires_approval';
+  repairAttempts: number;
+  publishRunBranches: boolean;
+}
+
 export type AgentOutcome =
   | 'completed' | 'needs_review' | 'blocked' | 'refused'
   | 'truncated' | 'iteration_limit' | 'cancelled' | 'no_completion_report';

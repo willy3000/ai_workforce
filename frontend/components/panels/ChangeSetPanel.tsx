@@ -22,9 +22,11 @@ import type { RunRepoState, WorkflowRun } from '@/lib/types';
 export function ChangeSetPanel({ run }: { run: WorkflowRun }) {
   const changeSet = run.changeSet;
   const [showAllPaths, setShowAllPaths] = useState(false);
+  const [showCheckHistory, setShowCheckHistory] = useState(false);
 
   const paths = changeSet?.changedPaths ?? [];
-  const checks = changeSet?.checks ?? [];
+  const history = changeSet?.checks ?? [];
+  const checks = [...new Map(history.map((check) => [check.command, check])).values()];
   const commits = changeSet?.commits ?? [];
   const passed = checks.filter((c) => c.passed).length;
   const published = (changeSet?.repos ?? []).some((r) => r.published);
@@ -66,6 +68,11 @@ export function ChangeSetPanel({ run }: { run: WorkflowRun }) {
       {/* Verification is the load-bearing claim, so it gets the most space. */}
       <div className="mt-4">
         <p className="eyebrow mb-1.5">Verification</p>
+        {history.length > checks.length && (
+          <button type="button" className="mb-2 text-xs underline" onClick={() => setShowCheckHistory(!showCheckHistory)}>
+            {showCheckHistory ? 'Show latest results' : `Show all ${history.length} check attempts`}
+          </button>
+        )}
         {!checks.length ? (
           <p
             className="rounded-md border px-2.5 py-2 text-[11.5px] leading-relaxed"
@@ -79,7 +86,7 @@ export function ChangeSetPanel({ run }: { run: WorkflowRun }) {
           </p>
         ) : (
           <ul className="space-y-1">
-            {checks.map((check, index) => (
+            {(showCheckHistory ? history : checks).map((check, index) => (
               <motion.li
                 key={`${check.command}-${index}`}
                 initial={{ opacity: 0, x: -4 }}

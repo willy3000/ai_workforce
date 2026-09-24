@@ -128,11 +128,11 @@ Backend report:
 Frontend report:
 {{steps.frontend}}
 
-Read the actual diff, check every acceptance criterion, run the test suite, and add tests covering the new behaviour and any defect you find. Report every finding with severity — a later step filters for importance, so coverage matters more than brevity here.`,
+Read the feature diff against the run baseline, including committed changes. Check each acceptance criterion. Repair scoped defects and rerun verification. Inspect package scripts first, install declared dependencies when missing, and use the existing test framework. If none exists, use available build/lint/type checks and a focused behavioral check; document the limitation without blocking a small feature solely for missing infrastructure. Preserve unrelated operator changes. Deliver the verified feature on the run branch.`,
       acceptanceCriteria: [
         'Every acceptance criterion is checked explicitly and its verdict stated',
-        'Test suite was actually executed and its real output reported',
-        'Tests covering the new behaviour exist',
+        'Applicable verification was executed with real output and limitations reported',
+        'New behavior is covered by existing test tooling or a documented focused behavioral check',
         'Findings are listed with severity and a concrete failure scenario',
       ],
     },

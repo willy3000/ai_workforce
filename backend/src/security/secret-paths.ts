@@ -128,6 +128,10 @@ const REDACTION_PATTERNS: { pattern: RegExp; replacement: string }[] = [
   },
   // key=value / "key": "value" assignments for secret-looking names
   {
+    pattern: /\b([A-Z0-9_]*_PASS|PASS)\s*[:=]\s*["']?([^\s"',;]+)["']?/gi,
+    replacement: '$1=[redacted]',
+  },
+  {
     pattern:
       /\b([A-Z0-9_]*(?:SECRET|PASSWORD|PASSWD|TOKEN|APIKEY|API_KEY|PRIVATE_KEY|ACCESS_KEY)[A-Z0-9_]*)\s*[:=]\s*["']?([^\s"',;]{6,})["']?/gi,
     replacement: '$1=[redacted]',

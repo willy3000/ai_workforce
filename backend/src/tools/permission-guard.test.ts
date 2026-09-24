@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionGuard } from './permission-guard';
-import { permissions } from '../agents/types';
+import { deliveryPermissions, permissions } from '../agents/types';
 import { PermissionDeniedError } from '../utils/errors';
 
 const frontendEngineer = () =>
@@ -84,5 +84,22 @@ describe('PermissionGuard.canRead', () => {
     assert.equal(guard.canRead('src/server.ts'), true);
     assert.equal(guard.canRead('.env'), false);
     assert.equal(guard.canRead('../outside.ts'), false);
+  });
+});
+
+describe('delivery permissions', () => {
+  it('lets QA finish source, configuration, and CI repairs with any executable', () => {
+    const guard = new PermissionGuard(deliveryPermissions(), 'qa-engineer');
+    for (const target of [
+      'inventory-project/src/pages/authentication.jsx',
+      'project-mibm-back/src/server.ts',
+      'inventory-project/package.json',
+      '.github/workflows/check.yml',
+    ]) {
+      assert.equal(guard.assertCanWrite(target), target);
+    }
+    assert.doesNotThrow(() => guard.assertCanRunCommand('custom-project-verifier'));
+    assert.doesNotThrow(() => guard.assertCanWriteGit());
+    assert.equal(guard.requiresApproval(), false);
   });
 });

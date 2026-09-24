@@ -87,7 +87,7 @@ export class GeminiQuotaLimiter {
 
   private delay(ms: number, signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) {
-      return Promise.reject(signal.reason ?? new Error('Gemini quota wait cancelled'));
+      return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Gemini quota wait cancelled'));
     }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, ms);
@@ -95,7 +95,7 @@ export class GeminiQuotaLimiter {
         'abort',
         () => {
           clearTimeout(timer);
-          reject(signal.reason ?? new Error('Gemini quota wait cancelled'));
+          reject(signal.reason instanceof Error ? signal.reason : new Error('Gemini quota wait cancelled'));
         },
         { once: true },
       );

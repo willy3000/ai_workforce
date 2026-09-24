@@ -68,6 +68,12 @@ describe('redactSecrets', () => {
     assert.ok(!redacted.includes('hunter2hunter2'));
   });
 
+  it('redacts SMTP_PASS in command output and diffs', () => {
+    const output = redactSecrets('+SMTP_PASS=fixture-mail-password\nSMTP_HOST=mail.example.test');
+    assert.ok(!output.includes('fixture-mail-password'));
+    assert.ok(output.includes('SMTP_HOST=mail.example.test'));
+  });
+
   it('leaves ordinary code untouched', () => {
     const code = 'const total = items.reduce((a, b) => a + b, 0);';
     assert.equal(redactSecrets(code), code);

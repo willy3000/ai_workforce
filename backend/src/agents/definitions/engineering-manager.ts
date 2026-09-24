@@ -1,10 +1,10 @@
 import { bundle } from '../../tools/bundles';
-import { permissions, type AgentDefinition } from '../types';
+import { deliveryPermissions, type AgentDefinition } from '../types';
 
 /**
  * The Engineering Manager owns architecture. It is the only role that can
- * record binding decisions (`record_decision`), and like the PM it cannot write
- * code — the separation keeps "who decided this" answerable months later.
+ * record binding decisions (`record_decision`). It can also repair supporting
+ * code and tooling when the assigned work requires it.
  */
 export const engineeringManager: AgentDefinition = {
   key: 'engineering-manager',
@@ -21,8 +21,8 @@ export const engineeringManager: AgentDefinition = {
     'coordination',
     'decision-records',
   ],
-  tools: [...bundle('inspect', 'memory', 'collaborate'), 'record_decision', 'create_task'],
-  permissions: permissions({ readPaths: ['**'], maxToolCalls: 30 }),
+  tools: [...bundle('inspect', 'memory', 'collaborate', 'edit', 'terminal', 'git'), 'record_decision', 'create_task'],
+  permissions: deliveryPermissions(),
   effort: 'xhigh',
   auditThinking: true,
   instructions: `You are the Engineering Manager of an AI engineering organization. You own the technical design of changes to this codebase.

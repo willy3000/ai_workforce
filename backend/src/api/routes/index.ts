@@ -7,6 +7,7 @@ import { taskController } from '../controllers/task.controller';
 import { agentController } from '../controllers/agent.controller';
 import { workflowController } from '../controllers/workflow.controller';
 import { healthController } from '../controllers/health.controller';
+import { settingsController } from '../controllers/settings.controller';
 
 /**
  * API surface.
@@ -34,6 +35,10 @@ router.get('/health/ready', optionalApiKeyAuth, asyncHandler(healthController.re
 
 router.use(apiKeyAuth);
 router.use(generalRateLimit);
+
+// --- Installation settings -------------------------------------------------
+router.get('/settings', asyncHandler(settingsController.get));
+router.patch('/settings', asyncHandler(settingsController.update));
 
 // --- Projects --------------------------------------------------------------
 // Cloning and indexing a repository is expensive and touches the filesystem.

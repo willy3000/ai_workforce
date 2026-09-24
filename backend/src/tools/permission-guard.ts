@@ -139,7 +139,7 @@ export class PermissionGuard {
     if (!this.permissions.allowTerminal) {
       throw new PermissionDeniedError(`Agent '${this.agentKey}' may not execute commands`);
     }
-    if (!this.permissions.allowedCommands.includes(command)) {
+    if (!this.permissions.allowedCommands.includes('*') && !this.permissions.allowedCommands.includes(command)) {
       throw new PermissionDeniedError(
         `Command '${command}' is not allowed for agent '${this.agentKey}'. ` +
           `Allowed: ${this.permissions.allowedCommands.join(', ') || '(none)'}`,

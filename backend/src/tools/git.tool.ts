@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { githubClient, GitHubClient } from '../integrations/github/github-client';
 import { repoFor, toWorkspacePath, type WorkspaceRepo } from '../integrations/github/workspace-repos';
 import { truncateMiddle } from '../utils/text';
+import { excludeFromCommit } from '../workflows/run-branch';
 
 /**
  * Git tools.
@@ -51,7 +52,7 @@ export const gitStatusTool = defineTool<GitStatusInput>({
   name: 'git_status',
   description:
     'Show the branch and the modified/created/deleted files of every git repository in the ' +
-    'checkout. Set include_diff to also see the unified diff of uncommitted changes.',
+    'checkout. Set include_diff to see the complete feature diff from the run baseline, including committed changes. Local secret files are omitted.',
   mutating: false,
   inputSchema: {
     type: 'object',
@@ -65,15 +66,19 @@ export const gitStatusTool = defineTool<GitStatusInput>({
     const sections: string[] = [];
     for (const repo of requireRepos(ctx)) {
       const status = await repo.git.status();
-      const at = (paths: string[]) => paths.map((p) => toWorkspacePath(repo, p)).join(', ');
+      const at = (paths: string[]) => paths.filter((p) => !excludeFromCommit(repo)(p)).map((p) => toWorkspacePath(repo, p)).join(', ');
       const lines = [
         `== ${label(repo)} on branch ${status.branch}${status.isClean ? ' (clean)' : ''}`,
-        status.created.length ? `created: ${at(status.created)}` : '',
-        status.modified.length ? `modified: ${at(status.modified)}` : '',
-        status.deleted.length ? `deleted: ${at(status.deleted)}` : '',
+        at(status.created) ? `created: ${at(status.created)}` : '',
+        at(status.modified) ? `modified: ${at(status.modified)}` : '',
+        at(status.deleted) ? `deleted: ${at(status.deleted)}` : '',
+        'Local secrets and generated files are excluded from feature review and commits.',
       ].filter(Boolean);
-      if (input.include_diff && !status.isClean) {
-        lines.push(`--- diff ---\n${truncateMiddle((await repo.git.diff()) || '(no textual diff)', 20_000)}`);
+      if (input.include_diff) {
+        const state = ctx.runRepos?.find((r) => r.root === repo.root);
+        const base = state?.baselineCommit ?? state?.baseCommit;
+        lines.push(`--- feature diff (${base ?? 'HEAD'} to working tree; local secrets omitted) ---\n${truncateMiddle((await repo.git.reviewDiff(base)) || '(no textual diff)', 20_000)}`);
+        if (status.created.length) lines.push('Read newly created, untracked source files separately; git diff does not include their contents.');
       }
       sections.push(lines.join('\n'));
     }
@@ -171,7 +176,8 @@ export const commitTool = defineTool<CommitInput>({
     } else {
       for (const repo of repos) {
         const status = await repo.git.status();
-        const changed = [...new Set([...status.created, ...status.modified, ...status.deleted, ...status.staged])];
+        const changed = [...new Set([...status.created, ...status.modified, ...status.deleted, ...status.staged])]
+          .filter((p) => !excludeFromCommit(repo)(p));
         if (!changed.length) continue;
         for (const p of changed) guard.assertCanWrite(toWorkspacePath(repo, p));
         plan.set(repo, changed);
@@ -185,8 +191,8 @@ export const commitTool = defineTool<CommitInput>({
       await repo.git.stage(paths);
       // Staged diff captured *before* the commit: taking it afterwards is empty by
       // construction, which is how commits used to record no changes (audit E8).
-      const stagedDiff = await repo.git.diff(true, 20_000);
-      const hash = await repo.git.commit(input.message);
+      const stagedDiff = await repo.git.diff(true, 20_000, paths);
+      const hash = await repo.git.commit(input.message, paths);
       if (!hash) continue;
       committed.push(`${label(repo)} ${hash.slice(0, 8)}`);
       await ctx.recordArtifact({

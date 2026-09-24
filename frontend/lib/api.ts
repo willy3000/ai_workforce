@@ -1,6 +1,6 @@
 import type {
   Agent, AgentMessage, AgentRunResult, MemorySnapshot, Project,
-  ReadyState, RepositorySummary, Task, WorkflowDefinition, WorkflowRun,
+  ReadyState, RepositorySummary, Task, WorkflowDefinition, WorkflowRun, WorkforceSettings,
 } from './types';
 
 /** All browser traffic goes through the server-side gateway (see app/api/gateway). */
@@ -88,6 +88,9 @@ export const api = {
 
   // --- platform ---
   ready: (signal?: AbortSignal) => get<ReadyState>('/health/ready', signal),
+  getSettings: (signal?: AbortSignal) => get<{ settings: WorkforceSettings }>('/settings', signal),
+  updateSettings: (settings: WorkforceSettings) =>
+    patch<{ settings: WorkforceSettings }>('/settings', settings),
 
   // --- projects ---
   listProjects: (signal?: AbortSignal) =>

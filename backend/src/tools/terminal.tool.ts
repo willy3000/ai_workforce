@@ -4,6 +4,7 @@ import { TerminalExecutor } from '../integrations/terminal/executor';
 import { truncateMiddle } from '../utils/text';
 import { resolveInsideReal } from '../utils/path-safety';
 import { ToolExecutionError } from '../utils/errors';
+import { looksLikeVerification, prepareVerification } from './verification';
 
 /**
  * Is this command a verification step whose verdict belongs in the change set?
@@ -13,16 +14,6 @@ import { ToolExecutionError } from '../utils/errors';
  * observed. Installs and builds are excluded — a successful `npm install` is not
  * evidence the change works.
  */
-const VERIFICATION_SUBCOMMANDS = new Set([
-  'test', 'tests', 'check', 'lint', 'typecheck', 'type-check', 'tsc', 'vitest', 'jest',
-]);
-
-function looksLikeVerification(command: string, args: string[]): boolean {
-  const direct = ['pytest', 'tsc', 'vitest', 'jest', 'mocha', 'rspec', 'phpunit', 'ctest'];
-  if (direct.includes(command)) return true;
-  return args.some((arg) => VERIFICATION_SUBCOMMANDS.has(arg.toLowerCase()));
-}
-
 interface RunCommandInput {
   command: string;
   args?: string[];
@@ -41,7 +32,7 @@ interface RunCommandInput {
 export const runCommandTool = defineTool<RunCommandInput>({
   name: 'run_command',
   description:
-    'Run a whitelisted command (e.g. command="npm", args=["test"]). Runs in the repository ' +
+    'Run a command (e.g. command="npm", args=["test"]). Runs in the repository ' +
     'root unless `cwd` names a repository-relative directory — in a repo with several packages, ' +
     'set cwd to the package (e.g. "api") so installs and tests happen there. Commands run ' +
     'without a shell: pipes, redirects and chaining are not available — issue separate calls ' +
@@ -81,6 +72,27 @@ export const runCommandTool = defineTool<RunCommandInput>({
         throw new ToolExecutionError(`cwd '${cwdLabel}' is not a directory in this repository.`);
       }
       cwdAbsolute = await resolveInsideReal(ctx.workspace.root, cwdLabel);
+    }
+
+    const preparation = await prepareVerification(input.command, input.args ?? [], cwdAbsolute, ctx.workspace.root);
+    if (preparation.unavailable) {
+      await ctx.recordArtifact({ type: 'note', content: `${cwdLabel}: ${preparation.unavailable}` });
+      return { output: preparation.unavailable, data: { verification: 'unavailable' } };
+    }
+    if (preparation.install) {
+      const install = preparation.install;
+      guard.assertCanRunCommand(install.command);
+      const installed = await new TerminalExecutor(install.cwd).run(install.command, install.args, {
+        allowedCommands: ctx.permissions.allowedCommands,
+        signal: ctx.signal,
+        timeoutMs: 300_000,
+      });
+      await ctx.recordArtifact({ type: 'command_output', content:
+        `Dependency setup: ${install.command} ${install.args.join(' ')} (exit ${installed.exitCode})\n${installed.stdout}\n${installed.stderr}` });
+      if (installed.exitCode !== 0 || installed.timedOut || installed.cancelled) {
+        return { output: `Dependency setup did not finish. ${installed.cancelled ? 'The run was cancelled; stop now.' : 'Resolve the install error and retry the check.'}\n${installed.stdout}\n${installed.stderr}`,
+          isError: true, data: { exitCode: installed.exitCode, cancelled: installed.cancelled, timedOut: installed.timedOut } };
+      }
     }
 
     const executor = new TerminalExecutor(cwdAbsolute);

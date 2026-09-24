@@ -10,6 +10,9 @@ import { discoverRepos } from '../integrations/github/workspace-repos';
 import { closeRunBranch, openRunBranch, runBranchName } from './run-branch';
 import type { IWorkflowRun } from '../database/models/workflow-run.model';
 import type { IRepository } from '../database/models/repository.model';
+import { commitTool, gitStatusTool } from '../tools/git.tool';
+import type { ToolContext } from '../tools/types';
+import { deliveryPermissions } from '../agents/types';
 
 /**
  * End-to-end cover, on real git repositories, for the two failures this module
@@ -34,10 +37,33 @@ async function makeRepo(dir: string): Promise<void> {
   await fs.mkdir(path.join(dir, 'src'), { recursive: true });
   await fs.writeFile(path.join(dir, 'src', 'app.js'), 'export const v = 1;\n');
   git(dir, 'init', '-q', '-b', 'master');
+  git(dir, 'config', 'core.autocrlf', 'false');
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'initial');
   // Uncommitted work in progress, the way the real project had it.
   await fs.writeFile(path.join(dir, 'src', 'wip.js'), 'export const wip = true;\n');
+}
+
+async function makeTrackedSecretRepo(name: string): Promise<string> {
+  const dir = path.join(tmp, name);
+  await makeRepo(dir);
+  await fs.writeFile(path.join(dir, '.env'), 'SMTP_PASS=initial-fixture-value\n');
+  await fs.writeFile(path.join(dir, 'notes.txt'), 'Original operator notes\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'existing tracked configuration and notes');
+  return dir;
+}
+
+async function gitToolContext(workspacePath: string): Promise<{ context: ToolContext; artifacts: string[] }> {
+  const artifacts: string[] = [];
+  const context = {
+    agentKey: 'qa-engineer',
+    permissions: deliveryPermissions(),
+    packages: [],
+    repos: await discoverRepos(workspacePath),
+    recordArtifact: async (artifact: { content: string }) => { artifacts.push(artifact.content); },
+  } as unknown as ToolContext;
+  return { context, artifacts };
 }
 
 const fakeRun = (overrides: Partial<IWorkflowRun> = {}): IWorkflowRun =>
@@ -54,6 +80,7 @@ before(async () => {
   // An enclosing repository, standing in for the platform's own repo. Nothing
   // below may ever touch it.
   git(tmp, 'init', '-q', '-b', 'main');
+  git(tmp, 'config', 'core.autocrlf', 'false');
   await fs.writeFile(path.join(tmp, 'outer.txt'), 'outer\n');
   git(tmp, 'add', '-A');
   git(tmp, 'commit', '-q', '-m', 'outer');
@@ -131,6 +158,44 @@ describe('run branch lifecycle', () => {
     assert.equal(git(tmp, 'branch', '--list').trim(), '* main');
   });
 
+  it('resumes a paused branch, preserves its earlier feature, and restores operator work', async () => {
+    const source = path.join(tmp, 'paused-original');
+    const checkout = path.join(tmp, 'paused-workspace');
+    await makeRepo(path.join(source, 'api'));
+    await makeRepo(path.join(source, 'web'));
+    await fs.cp(source, checkout, { recursive: true });
+    const run = fakeRun();
+    const opened = await openRunBranch(run, checkout);
+    assert.ok(opened);
+    await fs.writeFile(path.join(checkout, 'web', 'src', 'first.js'), 'export const first = true;\n');
+    const paused = fakeRun({ _id: run._id, status: 'awaiting_approval', changeSet: { branch: opened.branch, repos: opened.repos } });
+    const closedPause = await closeRunBranch(paused, checkout, null, { publish: false });
+    assert.ok(closedPause.repos.every((repo) => !repo.publishError));
+    assert.equal(git(path.join(checkout, 'web'), 'branch', '--show-current'), 'master');
+    await fs.access(path.join(checkout, 'web', 'src', 'wip.js'));
+
+    const resumedRun = fakeRun({ _id: run._id, changeSet: { branch: opened.branch, repos: closedPause.repos } });
+    const reopened = await openRunBranch(resumedRun, checkout);
+    assert.ok(reopened);
+    await fs.access(path.join(checkout, 'web', 'src', 'first.js'));
+    await fs.writeFile(path.join(checkout, 'web', 'src', 'second.js'), 'export const second = true;\n');
+    const closed = await closeRunBranch(
+      fakeRun({ _id: run._id, status: 'completed', outcome: 'delivered', changeSet: { branch: reopened.branch, repos: reopened.repos } }),
+      checkout,
+      { provider: 'local', url: source } as unknown as IRepository,
+      { publish: true },
+    );
+
+    assert.ok(closed.repos.every((repo) => !repo.publishError));
+    assert.deepEqual(closed.changedPaths.sort(), ['web/src/first.js', 'web/src/second.js']);
+    assert.ok(closed.repos.find((repo) => repo.root === 'web')?.published);
+    assert.match(git(path.join(source, 'web'), 'ls-tree', '-r', '--name-only', reopened.branch), /src\/first.js/);
+    for (const name of ['api', 'web']) {
+      assert.equal(git(path.join(checkout, name), 'branch', '--show-current'), 'master');
+      assert.match(git(path.join(checkout, name), 'status', '--porcelain'), /\?\? src\/wip\.js/);
+    }
+  });
+
   it('never commits secret files, even untracked and unignored', async () => {
     await fs.writeFile(path.join(workspace, 'api', '.env'), 'STRIPE_SECRET=sk_live_x\n');
     const run = fakeRun();
@@ -146,5 +211,81 @@ describe('run branch lifecycle', () => {
     );
     // Still present on disk for the operator, just never committed.
     await fs.access(path.join(workspace, 'api', '.env'));
+  });
+
+  it('preserves a staged tracked secret through baseline, feature commit, and checkout restoration', async () => {
+    const dir = await makeTrackedSecretRepo('tracked-secret-lifecycle');
+    await fs.writeFile(path.join(dir, '.env'), 'SMTP_PASS=operator-fixture-value\n');
+    await fs.writeFile(path.join(dir, 'notes.txt'), 'Operator work in progress\n');
+    git(dir, 'add', '.env', 'notes.txt');
+
+    const run = fakeRun();
+    const opened = await openRunBranch(run, dir);
+    assert.ok(opened);
+    assert.ok(opened.repos[0].baselineCommit);
+    assert.equal(git(dir, 'show', 'HEAD:.env'), 'SMTP_PASS=initial-fixture-value');
+    assert.equal(await fs.readFile(path.join(dir, '.env'), 'utf8'), 'SMTP_PASS=operator-fixture-value\n');
+
+    await fs.writeFile(path.join(dir, 'src', 'app.js'), 'export const v = 2;\n');
+    await fs.writeFile(path.join(dir, '.env'), 'SMTP_PASS=updated-operator-fixture-value\n');
+    git(dir, 'add', '.env');
+    const closed = await closeRunBranch(
+      fakeRun({ _id: run._id, status: 'completed', outcome: 'delivered', changeSet: { branch: opened.branch, repos: opened.repos } }),
+      dir,
+      null,
+      { publish: false },
+    );
+
+    assert.equal(closed.repos[0].publishError, undefined);
+    assert.deepEqual(closed.changedPaths, ['src/app.js']);
+    assert.equal(git(dir, 'show', `${opened.branch}:.env`), 'SMTP_PASS=initial-fixture-value');
+    assert.equal(git(dir, 'branch', '--show-current'), 'master');
+    assert.equal(await fs.readFile(path.join(dir, '.env'), 'utf8'), 'SMTP_PASS=updated-operator-fixture-value\n');
+    assert.equal(await fs.readFile(path.join(dir, 'notes.txt'), 'utf8'), 'Operator work in progress\n');
+    assert.equal(await fs.readFile(path.join(dir, 'src', 'app.js'), 'utf8'), 'export const v = 1;\n');
+  });
+});
+
+describe('git delivery tools', () => {
+  it('commits only requested paths while preserving unrelated pre-staged files', async () => {
+    const dir = await makeTrackedSecretRepo('scoped-tool-commit');
+    await fs.writeFile(path.join(dir, '.env'), 'SMTP_PASS=staged-fixture-secret\n');
+    await fs.writeFile(path.join(dir, 'notes.txt'), 'Unrelated staged notes\n');
+    git(dir, 'add', '.env', 'notes.txt');
+    await fs.writeFile(path.join(dir, 'src', 'app.js'), 'export const v = 2;\n');
+    const { context, artifacts } = await gitToolContext(dir);
+    const result = await commitTool.execute({ message: 'feat: change app', paths: ['src/app.js'] }, context);
+
+    assert.match(result.output, /Committed:/);
+    assert.equal(git(dir, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'), 'src/app.js');
+    assert.equal(git(dir, 'show', 'HEAD:.env'), 'SMTP_PASS=initial-fixture-value');
+    assert.equal(git(dir, 'show', 'HEAD:notes.txt'), 'Original operator notes');
+    assert.deepEqual(git(dir, 'diff', '--cached', '--name-only').split('\n').sort(), ['.env', 'notes.txt']);
+    assert.equal(artifacts.length, 1);
+    assert.match(artifacts[0], /\+export const v = 2/);
+    assert.ok(!artifacts[0].includes('staged-fixture-secret'));
+    assert.ok(!artifacts[0].includes('Unrelated staged notes'));
+  });
+
+  it('reviews committed feature changes against the run baseline without exposing local secrets', async () => {
+    const dir = await makeTrackedSecretRepo('complete-feature-review');
+    await fs.writeFile(path.join(dir, 'notes.txt'), 'Operator-only baseline notes\n');
+    const opened = await openRunBranch(fakeRun(), dir);
+    assert.ok(opened);
+    await fs.writeFile(path.join(dir, 'src', 'app.js'), 'export const v = 2;\n');
+    git(dir, 'add', 'src/app.js');
+    git(dir, 'commit', '-q', '-m', 'feat: reset button');
+    await fs.writeFile(path.join(dir, '.env'), 'SMTP_PASS=never-show-in-review\n');
+    git(dir, 'add', '.env');
+
+    const { context } = await gitToolContext(dir);
+    context.runBranch = opened.branch;
+    context.runRepos = opened.repos;
+    const result = await gitStatusTool.execute({ include_diff: true }, context);
+    assert.match(result.output, /\+export const v = 2/);
+    assert.ok(result.output.includes(opened.repos[0].baselineCommit!));
+    assert.ok(!result.output.includes('Operator-only baseline notes'));
+    assert.ok(!result.output.includes('never-show-in-review'));
+    assert.ok(!result.output.includes('.env'));
   });
 });

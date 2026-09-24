@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { api } from '@/lib/api';
 import { usePoll } from '@/lib/hooks';
+import { runNeedsAttention } from '@/lib/run-actions';
 import type { ReadyState } from '@/lib/types';
 
 /**
@@ -34,6 +35,7 @@ const DOCK = [
   { href: '/projects', label: 'Repositories', glyph: '▤', exact: false },
   { href: '/org', label: 'Roster', glyph: '⬡', exact: false },
   { href: '/pipeline', label: 'Internals', glyph: '⇄', exact: false },
+  { href: '/settings', label: 'Settings', glyph: '⚙', exact: false },
 ];
 
 export function OpsFrame({ children }: { children: React.ReactNode }) {
@@ -41,9 +43,14 @@ export function OpsFrame({ children }: { children: React.ReactNode }) {
   const ready = usePoll<ReadyState>((signal) => api.ready(signal), { intervalMs: 15_000 });
   const runs = usePoll((signal) => api.listRuns(undefined, signal), { intervalMs: 20_000 });
 
-  const needsYou =
-    runs.data?.runs.filter((r) => r.status === 'awaiting_approval' || r.status === 'interrupted')
-      .length ?? 0;
+  const needsYou = runs.data?.runs.filter(runNeedsAttention).length ?? 0;
+  const refreshReady = ready.refresh;
+  const refreshRuns = runs.refresh;
+  useEffect(() => {
+    const refresh = () => { refreshReady(); refreshRuns(); };
+    window.addEventListener('aiec-settings-changed', refresh);
+    return () => window.removeEventListener('aiec-settings-changed', refresh);
+  }, [refreshReady, refreshRuns]);
 
   // The workspace owns the whole viewport; other routes are documents and get a
   // scrolling container with breathing room.
@@ -175,7 +182,7 @@ function Instruments({
               }}
             >
               <span aria-hidden>⏸</span>
-              {needsYou} waiting
+              {needsYou} to review
             </Link>
           </motion.div>
         )}
@@ -198,8 +205,14 @@ function Instruments({
               title="Runs executing now, against this instance's concurrency cap"
             />
           )}
-          {ready.config?.requireHumanApproval && (
-            <Chip color="var(--status-warning)" glyph="⏸" label="gated" title="Every mutating step pauses for approval" />
+          {ready.config && (
+            <Link href="/settings" aria-label="Change workforce access settings">
+              <Readout
+                label="access"
+                value={ready.config.requireHumanApproval ? 'approval' : 'full'}
+                title={ready.config.requireHumanApproval ? 'Workflow steps require approval. Open settings to change access.' : 'No human approval pauses. Open settings to change access.'}
+              />
+            </Link>
           )}
           {ready.security && !ready.security.commandsSandboxed && (
             <Chip
@@ -316,7 +329,7 @@ function Dock({ pathname, needsYou }: { pathname: string; needsYou: number }) {
   return (
     <nav
       aria-label="Primary"
-      className="pointer-events-auto absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-full border p-1 backdrop-blur-md lg:left-5 lg:translate-x-0"
+      className="pointer-events-auto absolute bottom-5 left-1/2 z-20 flex w-max max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-full border p-1 backdrop-blur-md lg:left-5 lg:translate-x-0"
       style={{
         background: 'color-mix(in srgb, var(--surface-1) 82%, transparent)',
         boxShadow: 'var(--elev-2)',
@@ -329,7 +342,8 @@ function Dock({ pathname, needsYou }: { pathname: string; needsYou: number }) {
             key={item.href}
             href={item.href}
             aria-current={active ? 'page' : undefined}
-            className="relative flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11.5px] transition-colors"
+            aria-label={item.label}
+            className="relative flex shrink-0 flex-col items-center gap-0.5 rounded-full px-1.5 py-1.5 text-[9px] transition-colors sm:flex-row sm:gap-1.5 sm:px-2.5 sm:text-[11.5px]"
             style={{ color: active ? 'var(--text-primary)' : 'var(--text-muted)' }}
           >
             {active && (
@@ -343,7 +357,7 @@ function Dock({ pathname, needsYou }: { pathname: string; needsYou: number }) {
             <span aria-hidden className="relative text-[11px]" style={{ color: active ? 'var(--series-1)' : 'inherit' }}>
               {item.glyph}
             </span>
-            <span className="relative hidden sm:inline">{item.label}</span>
+            <span className="relative">{item.label}</span>
             {item.href === '/runs' && needsYou > 0 && (
               <span
                 aria-hidden

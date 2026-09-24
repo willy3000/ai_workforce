@@ -115,8 +115,8 @@ export class AgentRuntime {
       return [];
     });
     const rootRepo = repos.find((r) => r.root === '');
-    const runBranch = input.workflowRunId
-      ? (await workflowRunRepository.findById(input.workflowRunId))?.changeSet?.branch
+    const runChangeSet = input.workflowRunId
+      ? (await workflowRunRepository.findById(input.workflowRunId))?.changeSet
       : undefined;
 
     const context: ToolContext = {
@@ -131,7 +131,8 @@ export class AgentRuntime {
       packages,
       repos,
       git: rootRepo?.git,
-      runBranch,
+      runBranch: runChangeSet?.branch,
+      runRepos: runChangeSet?.repos,
       logger: runLogger,
       signal: input.signal,
       recordArtifact: async (artifact) => {

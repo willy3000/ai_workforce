@@ -30,6 +30,7 @@ import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { AppError, NotFoundError, toErrorMessage } from '../utils/errors';
 import { truncate } from '../utils/text';
+import { latestChecks } from '../tools/verification';
 
 /**
  * The autonomous workflow engine.
@@ -342,7 +343,7 @@ export class WorkflowEngine {
         return workflowRunRepository.findByIdOrFail(runId);
       }
 
-      const outcome = await this.runStep(run, step, definition, signal);
+      const outcome = await this.runStepWithRecovery(run, step, definition, signal);
 
       if (outcome.stepOutcome === 'cancelled') {
         return this.finishCancelled(runId);
@@ -370,6 +371,27 @@ export class WorkflowEngine {
     });
     logger.info({ runId: id, workflow: definition.key, outcome: runOutcome }, 'Workflow run completed');
     return workflowRunRepository.findByIdOrFail(runId);
+  }
+
+  /** Recoverable feedback starts another working pass on the same branch. */
+  private async runStepWithRecovery(
+    run: IWorkflowRun, step: WorkflowStep, definition: WorkflowDefinition, signal: AbortSignal,
+  ): Promise<{ ok: boolean; stepOutcome: StepOutcome; error?: string }> {
+    let current = run;
+    for (;;) {
+      if (await this.shouldStop(String(run._id), signal)) {
+        return { ok: false, stepOutcome: 'cancelled', error: 'Run cancelled' };
+      }
+      const outcome = await this.runStep(current, step, definition, signal);
+      if (outcome.ok || !['needs_review', 'blocked', 'truncated', 'iteration_limit', 'error'].includes(outcome.stepOutcome)) return outcome;
+      // Review-only workflows must remain reviews, not automatic rewrites.
+      if (definition.key === 'code-review') return outcome;
+      current = await workflowRunRepository.findByIdOrFail(run._id);
+      const attempt = current.steps.find((s) => s.id === step.id)?.attempt ?? 1;
+      if (attempt >= 1 + env.WORKFLOW_REPAIR_ATTEMPTS) return outcome;
+      await workflowRunRepository.renewLease(run._id, this.workerId);
+      logger.info({ runId: String(run._id), stepId: step.id, attempt }, 'Repairing step feedback automatically');
+    }
   }
 
   /** Execute a single step: create its task, run the agent, persist the output. */
@@ -416,6 +438,9 @@ export class WorkflowEngine {
         taskId: String(task._id),
         workflowRunId: String(run._id),
         prompt,
+        additionalContext: previousAttempt > 0
+          ? `This is an autonomous repair pass on the SAME checkout and branch. Inspect the existing work, fix the outstanding issue and rerun applicable verification. Do not merely repeat the review or request permission. Preserve unrelated operator work.\nPrevious feedback:\n${truncate(run.steps.find((s) => s.id === step.id)?.error ?? run.steps.find((s) => s.id === step.id)?.output ?? '', 12000)}\nLatest verification:\n${latestChecks(run.changeSet?.checks ?? []).map((c) => `${c.command}: ${c.passed ? 'passed' : `exit ${c.exitCode}`}`).join('\n')}`
+          : undefined,
         signal,
       });
 
@@ -426,9 +451,18 @@ export class WorkflowEngine {
         await workflowRunRepository.recordChangedPaths(run._id, result.changedPaths);
       }
 
-      const stepOutcome = toStepOutcome(result.outcome);
+      let stepOutcome = toStepOutcome(result.outcome);
       const output = result.output || result.completion?.summary || '';
-      const ok = result.succeeded;
+      let ok = result.succeeded;
+      if (ok && step.agentKey === 'qa-engineer' && ['review', 'testing'].includes(step.taskType)) {
+        const verified = await workflowRunRepository.findByIdOrFail(run._id);
+        const failing = latestChecks(verified.changeSet?.checks ?? []).filter((check) => !check.passed);
+        if (failing.length) {
+          ok = false;
+          stepOutcome = 'needs_review';
+          result.error = `Verification still fails: ${failing.map((check) => check.command).join('; ')}. Repair and rerun these checks.\n${output}`;
+        }
+      }
 
       await taskRepository.transition(
         task._id,
@@ -524,9 +558,8 @@ export class WorkflowEngine {
         });
       }
     } catch (err) {
-      // Without a branch the run can still do useful work; it just cannot be
-      // published. Say so on the run rather than failing it.
-      logger.warn({ err, runId: String(runId) }, 'Could not open run branch; continuing without one');
+      logger.error({ err, runId: String(runId) }, 'Could not prepare the delivery branch');
+      throw err;
     }
 
     try {
@@ -553,12 +586,23 @@ export class WorkflowEngine {
       // where the branch went.
       const finished = await workflowRunRepository.findByIdOrFail(runId);
       if (['completed', 'failed', 'cancelled'].includes(finished.status)) {
+        const publicationFailed = closed.repos.some((repo) => repo.publishError);
+        const outcome = finished.status === 'completed' && publicationFailed
+          ? 'needs_review' : finished.outcome ?? this.deriveRunOutcome(finished);
         await workflowRunRepository.setStatus(runId, finished.status, {
-          summary: this.renderSummary(finished, finished.outcome ?? this.deriveRunOutcome(finished)),
+          outcome,
+          summary: this.renderSummary(finished, outcome),
         });
       }
     } catch (err) {
       logger.error({ err, runId: String(runId) }, 'Closing run branch failed');
+      const finished = await workflowRunRepository.findByIdOrFail(runId);
+      if (finished.status === 'completed') {
+        await workflowRunRepository.setStatus(runId, 'completed', {
+          outcome: 'needs_review', error: `Branch delivery did not finish: ${toErrorMessage(err)}`,
+          summary: `${this.renderSummary(finished, 'needs_review')}\nBranch delivery did not finish: ${toErrorMessage(err)}`,
+        });
+      }
     }
   }
 
@@ -621,7 +665,7 @@ export class WorkflowEngine {
     if (outcomes.includes('needs_review')) return 'needs_review';
 
     // No verification evidence means nobody has demonstrated the change works.
-    const checks = run.changeSet?.checks ?? [];
+    const checks = latestChecks(run.changeSet?.checks ?? []);
     if (checks.length && checks.some((c) => !c.passed)) return 'needs_review';
     return 'delivered';
   }
@@ -640,7 +684,7 @@ export class WorkflowEngine {
    */
   private renderSummary(run: IWorkflowRun, outcome: WorkflowOutcome): string {
     const changeSet = run.changeSet ?? {};
-    const checks = changeSet.checks ?? [];
+    const checks = latestChecks(changeSet.checks ?? []);
     const passed = checks.filter((c) => c.passed).length;
 
     const lines: string[] = [

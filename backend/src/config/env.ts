@@ -65,6 +65,7 @@ const EnvSchema = z.object({
     .default('high'),
   CLAUDE_MAX_TOKENS: z.coerce.number().int().positive().default(16000),
   AGENT_MAX_ITERATIONS: z.coerce.number().int().positive().default(24),
+  WORKFLOW_REPAIR_ATTEMPTS: z.coerce.number().int().min(0).max(10).default(3),
 
   GEMINI_API_KEY: z.string().default(''),
   GEMINI_MODEL: z.string().default('gemini-2.5-pro'),

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { classifyPackageJson, packageFor, type WorkspacePackage } from './workspace-packages';
 import { PermissionGuard } from '../tools/permission-guard';
 import { agentRegistry } from '../agents/registry';
+import { permissions } from '../agents/types';
 import { PermissionDeniedError } from '../utils/errors';
 
 /**
@@ -16,8 +17,14 @@ const packages: WorkspacePackage[] = [
   { root: 'inventory-project', kind: 'frontend', manifest: 'package.json' },
 ];
 
+// Explicit scoped profiles remain supported; built-in delivery roles now work
+// across packages when a delegated change requires it.
 const guardFor = (key: string) =>
-  new PermissionGuard(agentRegistry.getOrFail(key).permissions, key, packages);
+  new PermissionGuard(permissions({
+    writePaths: ['src/**', 'package.json', 'package-lock.json', 'Dockerfile'],
+    denyPaths: ['**/Dockerfile'],
+    packageKinds: [key === 'backend-engineer' ? 'backend' : 'frontend'],
+  }), key, packages);
 
 describe('classifyPackageJson', () => {
   it('recognises a server package', () => {
@@ -32,6 +39,19 @@ describe('classifyPackageJson', () => {
   it('falls back to unknown', () => {
     assert.equal(classifyPackageJson({ dependencies: { lodash: '4' } }), 'unknown');
     assert.equal(classifyPackageJson(null), 'unknown');
+  });
+});
+
+describe('built-in delivery roles across packages', () => {
+  it('allows frontend, backend, and QA roles to finish cross-package changes', () => {
+    for (const role of ['frontend-engineer', 'backend-engineer', 'qa-engineer']) {
+      const guard = new PermissionGuard(agentRegistry.getOrFail(role).permissions, role, packages);
+      for (const target of ['project-mibm-back/src/server.js', 'inventory-project/src/auth.jsx', '.github/workflows/test.yml']) {
+        assert.equal(guard.assertCanWrite(target), target);
+      }
+      assert.throws(() => guard.assertCanWrite('../../outside.js'), PermissionDeniedError);
+      assert.throws(() => guard.assertCanWrite('project-mibm-back/.env'), PermissionDeniedError);
+    }
   });
 });
 

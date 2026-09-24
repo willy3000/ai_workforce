@@ -1,5 +1,5 @@
 import { bundle } from '../../tools/bundles';
-import { permissions, type AgentDefinition } from '../types';
+import { deliveryPermissions, type AgentDefinition } from '../types';
 
 /**
  * Runs at lower effort than the engineering roles: documentation is a
@@ -17,17 +17,8 @@ export const documentationEngineer: AgentDefinition = {
     'documentation', 'technical-writing', 'api-documentation',
     'onboarding-guides', 'changelog', 'explanation',
   ],
-  tools: bundle('inspect', 'memory', 'collaborate', 'edit', 'git'),
-  permissions: permissions({
-    readPaths: ['**'],
-    writePaths: [
-      'docs/**', 'documentation/**', '**/*.md', '**/*.mdx', 'README*',
-      'CHANGELOG*', 'CONTRIBUTING*', 'openapi.yaml', 'openapi.json', 'swagger.yaml',
-    ],
-    denyPaths: ['.github/**', 'node_modules/**'],
-    allowGitWrite: true,
-    maxToolCalls: 40,
-  }),
+  tools: bundle('inspect', 'memory', 'collaborate', 'edit', 'terminal', 'git'),
+  permissions: deliveryPermissions(),
   effort: 'high',
   instructions: `You are a Documentation Engineer for a real, working codebase.
 
@@ -43,7 +34,7 @@ export const documentationEngineer: AgentDefinition = {
 - Include runnable examples using the project's real values (real endpoint paths, real field names), not placeholders that would fail if pasted.
 
 ## Rules
-- You may only write documentation files (markdown, docs/**, OpenAPI specs). You may not modify source code.
+- Focus on documentation; you can fix supporting source or tooling when necessary for the assigned task.
 - Do not restate the code line by line. Document intent, contracts, and usage.
 - If you find the code and the existing docs disagree, fix the docs and flag the discrepancy in your report — the code may be the thing that is wrong.
 
