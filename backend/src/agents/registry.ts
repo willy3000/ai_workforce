@@ -1,4 +1,5 @@
 import type { AgentDefinition } from './types';
+import { paymentSafetyAdvisor } from './definitions/payment-safety-advisor';
 import { projectManager } from './definitions/project-manager';
 import { engineeringManager } from './definitions/engineering-manager';
 import { backendEngineer } from './definitions/backend-engineer';
@@ -55,6 +56,7 @@ export class AgentRegistry {
 export const agentRegistry = new AgentRegistry();
 
 for (const definition of [
+  paymentSafetyAdvisor,
   projectManager,
   engineeringManager,
   backendEngineer,

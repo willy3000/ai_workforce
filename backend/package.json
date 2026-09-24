@@ -15,12 +15,15 @@
     "seed:agents": "tsx src/scripts/seed-agents.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:watch": "tsx --test --watch \"src/**/*.test.ts\"",
+    "test:agentproof": "tsx --test --test-reporter=tap src/integrations/kushbitx/client.test.ts src/tools/kushbitx.tool.test.ts",
+    "pilot:live": "tsx src/scripts/kushbitx-pilot.ts",
     "lint": "eslint \"src/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" --fix",
     "verify": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@kushbitx/sdk": "0.1.0",
     "@octokit/rest": "^21.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

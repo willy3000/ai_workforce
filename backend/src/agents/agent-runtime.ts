@@ -4,6 +4,7 @@ import { SUCCESSFUL_OUTCOMES, type AgentDefinition, type AgentRunInput, type Age
 import { toolRegistry } from '../tools/registry';
 import { validateToolInput } from '../tools/validate-input';
 import type { ToolContext } from '../tools/types';
+import { createKushBitxPilot } from '../integrations/kushbitx/client';
 import { contextBuilder } from '../memory/context-builder';
 import { effectiveProviderName, resolveProvider } from '../services/llm/provider-registry';
 import type { LlmMessage, ToolResultBlock } from '../services/llm/types';
@@ -120,6 +121,8 @@ export class AgentRuntime {
       : undefined;
 
     const context: ToolContext = {
+      kushbitx: definition.tools.some((name) => name.startsWith('kushbitx_'))
+        ? createKushBitxPilot() : undefined,
       projectId,
       taskId: task?._id,
       workflowRunId: input.workflowRunId ? new Types.ObjectId(input.workflowRunId) : undefined,

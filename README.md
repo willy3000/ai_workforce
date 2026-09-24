@@ -1,5 +1,8 @@
 # AI Engineering Company
 
+Optional integration: [KushBitx AgentProof free technical pilot](docs/KUSHBITX_AGENTPROOF_PILOT.md)
+adds unsigned payment-safety evaluation and HTTP 402 challenge inspection.
+
 A reusable multi-agent engineering platform. Connect **any** repository — any language, any framework — and a team of specialised AI agents analyses, plans, implements, reviews and documents changes to it.
 
 This is deliberately **not** a one-project tool. Nothing in the platform knows anything about a specific codebase; everything it knows is detected at onboarding time and stored as project memory.

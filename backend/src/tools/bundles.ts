@@ -13,6 +13,8 @@
  * happens once at boot in `bootstrap/validate-registries.ts`.)
  */
 export const TOOL_BUNDLES = {
+  /** Optional unsigned advisory tools. No executable payment capability. */
+  agentproof: ['kushbitx_preview_token', 'kushbitx_evaluate_spend', 'kushbitx_get_payment_challenge'],
   /** Read-only repository inspection. Every agent gets these. */
   inspect: ['read_file', 'list_directory', 'code_search', 'find_files'],
   /** Long-term memory access. Every agent gets these. */

@@ -18,6 +18,8 @@ import type { WorkspaceRepo } from '../integrations/github/workspace-repos';
  * can act under — there is no ambient access path around it.
  */
 export interface ToolContext {
+  /** Narrow, unsigned payment-safety capability; granted only to pilot roles. */
+  kushbitx?: import('../integrations/kushbitx/client').KushBitxPilot;
   projectId: Types.ObjectId;
   taskId?: Types.ObjectId;
   workflowRunId?: Types.ObjectId;

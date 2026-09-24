@@ -1,0 +1,610 @@
+
+> @ai-engineering-company/backend@0.1.0 test:agentproof
+> tsx --test --test-reporter=tap src/integrations/kushbitx/client.test.ts src/tools/kushbitx.tool.test.ts
+
+TAP version 13
+# Subtest: KushBitx installed SDK adapter
+    # Subtest: previews a matching token and strips unapproved response fields
+    ok 1 - previews a matching token and strips unapproved response fields
+      ---
+      duration_ms: 42.069
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or mismatched token preview
+    ok 2 - rejects malformed or mismatched token preview
+      ---
+      duration_ms: 2.2272
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or mismatched token preview
+    ok 3 - rejects malformed or mismatched token preview
+      ---
+      duration_ms: 3.4071
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or mismatched token preview
+    ok 4 - rejects malformed or mismatched token preview
+      ---
+      duration_ms: 1.3216
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or mismatched token preview
+    ok 5 - rejects malformed or mismatched token preview
+      ---
+      duration_ms: 1.3599
+      type: 'test'
+      ...
+    # Subtest: evaluates approve and preserves only the five evidence fields
+    ok 6 - evaluates approve and preserves only the five evidence fields
+      ---
+      duration_ms: 2.1987
+      type: 'test'
+      ...
+    # Subtest: evaluates block and preserves only the five evidence fields
+    ok 7 - evaluates block and preserves only the five evidence fields
+      ---
+      duration_ms: 1.8587
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or uncorrelated SpendGuard data
+    ok 8 - rejects malformed or uncorrelated SpendGuard data
+      ---
+      duration_ms: 2.942
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or uncorrelated SpendGuard data
+    ok 9 - rejects malformed or uncorrelated SpendGuard data
+      ---
+      duration_ms: 1.0453
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or uncorrelated SpendGuard data
+    ok 10 - rejects malformed or uncorrelated SpendGuard data
+      ---
+      duration_ms: 1.2445
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or uncorrelated SpendGuard data
+    ok 11 - rejects malformed or uncorrelated SpendGuard data
+      ---
+      duration_ms: 1.3594
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or uncorrelated SpendGuard data
+    ok 12 - rejects malformed or uncorrelated SpendGuard data
+      ---
+      duration_ms: 1.1072
+      type: 'test'
+      ...
+    # Subtest: rejects malformed or uncorrelated SpendGuard data
+    ok 13 - rejects malformed or uncorrelated SpendGuard data
+      ---
+      duration_ms: 0.8856
+      type: 'test'
+      ...
+    # Subtest: continues only on a complete APPROVE result; all other outcomes stop
+    ok 14 - continues only on a complete APPROVE result; all other outcomes stop
+      ---
+      duration_ms: 0.5085
+      type: 'test'
+      ...
+    # Subtest: returns HUMAN_APPROVAL for review without granting continuation
+    ok 15 - returns HUMAN_APPROVAL for review without granting continuation
+      ---
+      duration_ms: 1.9028
+      type: 'test'
+      ...
+    # Subtest: stops after exactly one unsigned HTTP 402 request
+    ok 16 - stops after exactly one unsigned HTTP 402 request
+      ---
+      duration_ms: 1.4728
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 200 without retries
+    ok 17 - rejects challenge HTTP 200 without retries
+      ---
+      duration_ms: 0.667
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 202 without retries
+    ok 18 - rejects challenge HTTP 202 without retries
+      ---
+      duration_ms: 0.3845
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 301 without retries
+    ok 19 - rejects challenge HTTP 301 without retries
+      ---
+      duration_ms: 0.2922
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 307 without retries
+    ok 20 - rejects challenge HTTP 307 without retries
+      ---
+      duration_ms: 0.3173
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 400 without retries
+    ok 21 - rejects challenge HTTP 400 without retries
+      ---
+      duration_ms: 0.295
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 401 without retries
+    ok 22 - rejects challenge HTTP 401 without retries
+      ---
+      duration_ms: 0.2723
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 429 without retries
+    ok 23 - rejects challenge HTTP 429 without retries
+      ---
+      duration_ms: 0.2402
+      type: 'test'
+      ...
+    # Subtest: rejects challenge HTTP 500 without retries
+    ok 24 - rejects challenge HTTP 500 without retries
+      ---
+      duration_ms: 0.2398
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 25 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.5127
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 26 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.4272
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 27 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 1.3202
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 28 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.577
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 29 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.4543
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 30 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.5311
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 31 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.4276
+      type: 'test'
+      ...
+    # Subtest: rejects missing or malformed x402 challenge terms
+    ok 32 - rejects missing or malformed x402 challenge terms
+      ---
+      duration_ms: 0.5527
+      type: 'test'
+      ...
+    # Subtest: previewToken: sanitizes network failures
+    ok 33 - previewToken: sanitizes network failures
+      ---
+      duration_ms: 0.3804
+      type: 'test'
+      ...
+    # Subtest: previewToken: distinguishes upstream HTTP errors
+    ok 34 - previewToken: distinguishes upstream HTTP errors
+      ---
+      duration_ms: 0.4876
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects invalid JSON
+    ok 35 - previewToken: rejects invalid JSON
+      ---
+      duration_ms: 1.4872
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects oversized responses
+    ok 36 - previewToken: rejects oversized responses
+      ---
+      duration_ms: 2.3089
+      type: 'test'
+      ...
+    # Subtest: previewToken: cancellation before dispatch makes no request
+    ok 37 - previewToken: cancellation before dispatch makes no request
+      ---
+      duration_ms: 0.6534
+      type: 'test'
+      ...
+    # Subtest: previewToken: cancellation aborts the in-flight fetch
+    ok 38 - previewToken: cancellation aborts the in-flight fetch
+      ---
+      duration_ms: 0.8233
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects privateKey before networking
+    ok 39 - previewToken: rejects privateKey before networking
+      ---
+      duration_ms: 0.2394
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects seedPhrase before networking
+    ok 40 - previewToken: rejects seedPhrase before networking
+      ---
+      duration_ms: 0.3335
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects signer before networking
+    ok 41 - previewToken: rejects signer before networking
+      ---
+      duration_ms: 0.1183
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects paymentSignature before networking
+    ok 42 - previewToken: rejects paymentSignature before networking
+      ---
+      duration_ms: 0.0972
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects wallet before networking
+    ok 43 - previewToken: rejects wallet before networking
+      ---
+      duration_ms: 0.1042
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects transaction before networking
+    ok 44 - previewToken: rejects transaction before networking
+      ---
+      duration_ms: 0.1176
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects recoveryKey before networking
+    ok 45 - previewToken: rejects recoveryKey before networking
+      ---
+      duration_ms: 0.1609
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects adminKey before networking
+    ok 46 - previewToken: rejects adminKey before networking
+      ---
+      duration_ms: 0.1971
+      type: 'test'
+      ...
+    # Subtest: previewToken: rejects baseUrl before networking
+    ok 47 - previewToken: rejects baseUrl before networking
+      ---
+      duration_ms: 0.1062
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: sanitizes network failures
+    ok 48 - evaluateSpend: sanitizes network failures
+      ---
+      duration_ms: 0.4039
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: distinguishes upstream HTTP errors
+    ok 49 - evaluateSpend: distinguishes upstream HTTP errors
+      ---
+      duration_ms: 0.4017
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects invalid JSON
+    ok 50 - evaluateSpend: rejects invalid JSON
+      ---
+      duration_ms: 0.3916
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects oversized responses
+    ok 51 - evaluateSpend: rejects oversized responses
+      ---
+      duration_ms: 0.5655
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: cancellation before dispatch makes no request
+    ok 52 - evaluateSpend: cancellation before dispatch makes no request
+      ---
+      duration_ms: 0.2281
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: cancellation aborts the in-flight fetch
+    ok 53 - evaluateSpend: cancellation aborts the in-flight fetch
+      ---
+      duration_ms: 0.4623
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects privateKey before networking
+    ok 54 - evaluateSpend: rejects privateKey before networking
+      ---
+      duration_ms: 0.2287
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects seedPhrase before networking
+    ok 55 - evaluateSpend: rejects seedPhrase before networking
+      ---
+      duration_ms: 0.1964
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects signer before networking
+    ok 56 - evaluateSpend: rejects signer before networking
+      ---
+      duration_ms: 0.1271
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects paymentSignature before networking
+    ok 57 - evaluateSpend: rejects paymentSignature before networking
+      ---
+      duration_ms: 0.119
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects wallet before networking
+    ok 58 - evaluateSpend: rejects wallet before networking
+      ---
+      duration_ms: 0.1168
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects transaction before networking
+    ok 59 - evaluateSpend: rejects transaction before networking
+      ---
+      duration_ms: 0.1099
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects recoveryKey before networking
+    ok 60 - evaluateSpend: rejects recoveryKey before networking
+      ---
+      duration_ms: 0.1092
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects adminKey before networking
+    ok 61 - evaluateSpend: rejects adminKey before networking
+      ---
+      duration_ms: 2.1857
+      type: 'test'
+      ...
+    # Subtest: evaluateSpend: rejects baseUrl before networking
+    ok 62 - evaluateSpend: rejects baseUrl before networking
+      ---
+      duration_ms: 0.17
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: sanitizes network failures
+    ok 63 - getPaymentChallenge: sanitizes network failures
+      ---
+      duration_ms: 0.6226
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: distinguishes upstream HTTP errors
+    ok 64 - getPaymentChallenge: distinguishes upstream HTTP errors
+      ---
+      duration_ms: 0.4144
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects invalid JSON
+    ok 65 - getPaymentChallenge: rejects invalid JSON
+      ---
+      duration_ms: 0.3128
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects oversized responses
+    ok 66 - getPaymentChallenge: rejects oversized responses
+      ---
+      duration_ms: 0.4418
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: cancellation before dispatch makes no request
+    ok 67 - getPaymentChallenge: cancellation before dispatch makes no request
+      ---
+      duration_ms: 0.1703
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: cancellation aborts the in-flight fetch
+    ok 68 - getPaymentChallenge: cancellation aborts the in-flight fetch
+      ---
+      duration_ms: 0.2915
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects privateKey before networking
+    ok 69 - getPaymentChallenge: rejects privateKey before networking
+      ---
+      duration_ms: 0.1085
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects seedPhrase before networking
+    ok 70 - getPaymentChallenge: rejects seedPhrase before networking
+      ---
+      duration_ms: 0.0845
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects signer before networking
+    ok 71 - getPaymentChallenge: rejects signer before networking
+      ---
+      duration_ms: 0.08
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects paymentSignature before networking
+    ok 72 - getPaymentChallenge: rejects paymentSignature before networking
+      ---
+      duration_ms: 0.0743
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects wallet before networking
+    ok 73 - getPaymentChallenge: rejects wallet before networking
+      ---
+      duration_ms: 0.0726
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects transaction before networking
+    ok 74 - getPaymentChallenge: rejects transaction before networking
+      ---
+      duration_ms: 0.0747
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects recoveryKey before networking
+    ok 75 - getPaymentChallenge: rejects recoveryKey before networking
+      ---
+      duration_ms: 0.076
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects adminKey before networking
+    ok 76 - getPaymentChallenge: rejects adminKey before networking
+      ---
+      duration_ms: 0.2007
+      type: 'test'
+      ...
+    # Subtest: getPaymentChallenge: rejects baseUrl before networking
+    ok 77 - getPaymentChallenge: rejects baseUrl before networking
+      ---
+      duration_ms: 0.1451
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount 0
+    ok 78 - rejects invalid amount 0
+      ---
+      duration_ms: 2.9726
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount -1
+    ok 79 - rejects invalid amount -1
+      ---
+      duration_ms: 1.535
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount 1e3
+    ok 80 - rejects invalid amount 1e3
+      ---
+      duration_ms: 0.3542
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount 01.00
+    ok 81 - rejects invalid amount 01.00
+      ---
+      duration_ms: 0.1989
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount 1.1234567
+    ok 82 - rejects invalid amount 1.1234567
+      ---
+      duration_ms: 0.3354
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount 
+    ok 83 - rejects invalid amount 
+      ---
+      duration_ms: 0.2371
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount 1
+    ok 84 - rejects invalid amount 1
+      ---
+      duration_ms: 0.1894
+      type: 'test'
+      ...
+    # Subtest: rejects invalid amount Infinity
+    ok 85 - rejects invalid amount Infinity
+      ---
+      duration_ms: 0.1916
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service preflight
+    ok 86 - rejects unapproved service preflight
+      ---
+      duration_ms: 0.1818
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service transaction-preflight
+    ok 87 - rejects unapproved service transaction-preflight
+      ---
+      duration_ms: 0.1058
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service payment-proof
+    ok 88 - rejects unapproved service payment-proof
+      ---
+      duration_ms: 0.0868
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service verify-payment
+    ok 89 - rejects unapproved service verify-payment
+      ---
+      duration_ms: 0.0955
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service payment
+    ok 90 - rejects unapproved service payment
+      ---
+      duration_ms: 0.1094
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service https://example.com
+    ok 91 - rejects unapproved service https://example.com
+      ---
+      duration_ms: 0.0852
+      type: 'test'
+      ...
+    # Subtest: rejects unapproved service 
+    ok 92 - rejects unapproved service 
+      ---
+      duration_ms: 0.0827
+      type: 'test'
+      ...
+    # Subtest: rejects malformed addresses, nested unknown fields and paid evidence requests
+    ok 93 - rejects malformed addresses, nested unknown fields and paid evidence requests
+      ---
+      duration_ms: 0.785
+      type: 'test'
+      ...
+    1..93
+ok 1 - KushBitx installed SDK adapter
+  ---
+  duration_ms: 103.3175
+  type: 'suite'
+  ...
+# Subtest: AgentProof registry and capability boundary
+    # Subtest: registers exactly three non-mutating KushBitx tools
+    ok 1 - registers exactly three non-mutating KushBitx tools
+      ---
+      duration_ms: 1.9377
+      type: 'test'
+      ...
+    # Subtest: gives only the advisor the pilot bundle and denies executable capabilities
+    ok 2 - gives only the advisor the pilot bundle and denies executable capabilities
+      ---
+      duration_ms: 0.3669
+      type: 'test'
+      ...
+    # Subtest: fails closed when the explicit capability is missing
+    ok 3 - fails closed when the explicit capability is missing
+      ---
+      duration_ms: 0.3032
+      type: 'test'
+      ...
+    # Subtest: returns structured errors without leaking upstream messages
+    ok 4 - returns structured errors without leaking upstream messages
+      ---
+      duration_ms: 18.2874
+      type: 'test'
+      ...
+    1..4
+ok 2 - AgentProof registry and capability boundary
+  ---
+  duration_ms: 22.2149
+  type: 'suite'
+  ...
+1..2
+# tests 97
+# suites 2
+# pass 97
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1009.58

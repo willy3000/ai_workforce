@@ -1,4 +1,5 @@
 import type { Tool } from './types';
+import { kushbitxPilotTools } from './kushbitx.tool';
 import type { LlmToolDefinition } from '../services/llm/types';
 import { listDirectoryTool, repositoryReaderTool } from './repository-reader.tool';
 import { codeSearchTool, findFilesTool } from './code-search.tool';
@@ -74,6 +75,7 @@ export const toolRegistry = new ToolRegistry();
 
 // --- Built-in catalogue ----------------------------------------------------
 for (const tool of [
+  ...kushbitxPilotTools,
   repositoryReaderTool,
   listDirectoryTool,
   codeSearchTool,
