@@ -1,0 +1,10 @@
+{
+  "requestId": "aw-block-20260923",
+  "decision": "BLOCK",
+  "reasonCodes": [
+    "PER_TRANSACTION_LIMIT",
+    "HUMAN_THRESHOLD"
+  ],
+  "decisionId": "0xf1d841258bc9c3270dd81cf94f975b383070b23b4683f73850d6889afb3ee2d4",
+  "checkedAt": "2026-09-24T09:50:39.923Z"
+}

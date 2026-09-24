@@ -1,0 +1,27 @@
+{
+  "service": "token-risk",
+  "http_status": 402,
+  "payment_required": true,
+  "execution_performed": false,
+  "payment_signed": false,
+  "challenge": {
+    "x402Version": 2,
+    "resource": {
+      "url": "https://kushbitx.com/api/token-risk"
+    },
+    "accepts": [
+      {
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "amount": "250000",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "payTo": "0x0d68028d06af13379C872FEE032568B4Be712f22",
+        "maxTimeoutSeconds": 300,
+        "extra": {
+          "name": "USD Coin",
+          "version": "2"
+        }
+      }
+    ]
+  }
+}
